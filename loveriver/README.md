@@ -241,23 +241,39 @@ permanent and independent of this file. Real fiat does the opposite with records
 Recommendation 11 requires transaction records be kept at least five years — which is why
 `docs/fiat-rules.md` lists LVR as copying fiat's *supply* rules and inverting its *record* rule.
 
-Entries expire when something touches the ledger (`topup.mjs` purges at the start and after
-minting; `--show` purges before showing). For deletion ten minutes after a mint rather than at
-the next run, **no timer is needed**: the run that writes the entries spawns one detached
-process that sleeps just past the retention and purges once, then exits. No cron, no Task
-Scheduler entry, and no console window every minute.
+### Expiry runs on its own
 
-A repeating purge is only worth it when several places mint against one ledger, and `--purge`
-is idempotent enough for that. Task Scheduler has no working-directory setting, so pass `--file`
-with an absolute path:
+The rule is that a line lives ten minutes. That is not left to the next person who happens to
+read the ledger — three things expire it, and the first is the one that survives a reboot:
+
+1. **A one-minute scheduled job** (`ops/ledger-purge.cmd` + `.vbs` on Windows, `ops/ledger-purge.sh`
+   on a server). It lives outside any process, so it still fires after a crash, a reboot or a
+   machine that was asleep at the ten-minute mark. On Windows it runs through `wscript` with a
+   hidden window, because a console flashing every minute is unusable on a desktop.
+2. **A detached one-shot** spawned by the run that minted, firing just past the retention. This
+   is exact even where no scheduler was ever installed.
+3. **Purge-on-touch** in `topup.mjs` and `--show` — a backstop, no longer the mechanism.
 
 ```bat
-schtasks /Create /TN "Loveriver ledger purge" /SC MINUTE /MO 1 /F /TR "\"C:\Program Files\nodejs\node.exe\" \"C:\path\to\loveriver\tools\mint-ledger.mjs\" --purge --file \"C:\path\to\loveriver\mint-ledger.jsonl\""
+rem install (Windows), and remove
+schtasks /Create /TN "Loveriver ledger purge" /SC MINUTE /MO 1 /F ^
+  /TR "wscript.exe \"C:\path\to\loveriver\ops\ledger-purge.vbs\""
+schtasks /Delete /TN "Loveriver ledger purge" /F
 ```
 
 ```sh
-*/1 * * * * node /path/to/loveriver/tools/mint-ledger.mjs --purge --file /path/to/loveriver/mint-ledger.jsonl
+# cron (server)
+*/1 * * * * /path/to/loveriver/ops/ledger-purge.sh
 ```
+
+A successful run logs nothing and prints nothing: a line every minute saying "destroyed
+nothing" is noise, and one saying "destroyed two" would be a record of the deletions
+themselves. Only failures reach `logs/ledger-purge.log`.
+
+**The one gap that remains:** nothing runs while the machine is off. Entries written before a
+shutdown are destroyed at the first tick after it boots — later than ten minutes, unavoidably.
+The tool closes that with `topup.mjs`'s deferred purge and the purge-on-touch fallback, but it
+is the fallback that catches it, not the clock.
 
 ## Documents
 

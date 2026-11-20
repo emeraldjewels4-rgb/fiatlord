@@ -15,15 +15,19 @@
  *   removed. There is no history file, no rotation, no backup and no "--keep" flag, because
  *   the point of the rule is that the record is gone rather than filed somewhere else.
  *
- *   Entries expire on the next run of anything that touches the ledger (topup.mjs purges at
- *   the start and again after minting; --show purges before showing). For deletion ten
- *   minutes after a mint rather than at the next run, no scheduler is needed: the run that
- *   writes the entries spawns ONE detached process that sleeps past the retention and purges
- *   once (deferPurge, below). A machine that mints therefore needs no cron and no Task
- *   Scheduler entry, and the purge costs no console window every minute.
+ *   Expiry does not wait for a reader. Three mechanisms, in order of how much they can be
+ *   relied on:
  *
- *   Where a repeating job is wanted anyway — several operators minting against one ledger —
- *   `--purge` is idempotent and cheap enough for a one-minute timer.
+ *     1. An installed one-minute job (ops/ledger-purge.*). This is the only one that lives
+ *        outside any process, so it is the only one that survives a reboot, a crash or a
+ *        machine that was asleep when the retention ran out.
+ *     2. A detached one-shot spawned by the run that minted (deferPurge, below), so the
+ *        common case is exact even where no scheduler has been installed.
+ *     3. Purge-on-touch in topup.mjs and --show, now only a backstop.
+ *
+ *   What none of them can do is run while the machine is off. Entries written before a
+ *   shutdown are destroyed at the first tick after it boots, which is later than ten minutes;
+ *   nothing in this file can fix that, and the README says so rather than implying otherwise.
  *
  * WHAT IT CANNOT DO, SAID PLAINLY
  *
@@ -209,7 +213,9 @@ if (isMain(import.meta.url) && !flag('selftest')) {
     const after = Number(value('after', '0'));
     if (after > 0) await new Promise((done) => setTimeout(done, after));
     const { kept, removed } = purgeLedger(file, resolveNow(value('now', '')));
-    console.log(`  destroyed ${removed} expired entr${removed === 1 ? 'y' : 'ies'}, kept ${kept}`);
+    // Silent when there was nothing to destroy: this runs once a minute from a scheduler, and
+    // a log line saying "destroyed nothing" 1,439 times a day is noise, not evidence.
+    if (removed > 0) console.log(`  destroyed ${removed} expired entr${removed === 1 ? 'y' : 'ies'}, kept ${kept}`);
   } else if (flag('forget')) {
     const existed = existsSync(file);
     rmSync(file, { force: true });
