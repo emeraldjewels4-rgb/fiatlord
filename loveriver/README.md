@@ -230,9 +230,10 @@ admins from 0 to the half floor and then to the mark, wrote eight ledger lines a
 a second run logged `nothing to do` and exited `0`; and a trigger set three minutes in the past
 started on its own, which is the catch-up a slept-through day relies on.
 
-`ops/topup.env` is gitignored and holds `RPC_URL`, `LOVERIVER_TOKEN` and `OWNER_KEY` (plus an
-optional `NODE` path when Task Scheduler's `PATH` cannot find node); copy
-`ops/topup.env.example` and `chmod 600` it. The exit code in the log is what to alert on: `0`
+`ops/topup.env` is gitignored and holds `RPC_URL` and `OWNER_KEY` (plus an optional `NODE` path
+when Task Scheduler's `PATH` cannot find node); copy `ops/topup.env.example` and `chmod 600` it.
+The token address is deliberately not in it -- it comes from `deployments.json`. The exit code
+in the log is what to alert on: `0`
 meant it minted or had nothing to do, `1` refused or failed, `2` was misconfigured. Outside a
 mint window a scheduled run still restores the half floor and exits `0` — the calendar gates
 the full stage, not the floor.
@@ -272,9 +273,20 @@ what the header used to only assert: each mint's transaction sender must equal t
 audit.
 
 ```bash
-node tools/mint-audit.mjs --rpc ... --token ... --from 2026-11-20 --to 2026-11-20
-node tools/mint-audit.mjs --rpc ... --token ... --json > mints.json
+node tools/mint-audit.mjs --rpc ... --from 2026-11-20 --to 2026-11-20
+node tools/mint-audit.mjs --rpc ... --json > mints.json
+node tools/mint-audit.mjs --rpc ... --invariant    # whole life of the token, plus the supply check
 ```
+
+Neither the audit nor the top-up takes a token address on the command line: `deployments.json`,
+committed, holds one entry per chain id -- `token`, `deployBlock`, `owner` -- and both tools
+look the address up by the chain id the RPC reports. `--token` still overrides it for a one-off,
+but nothing that runs on a schedule needs one. `--invariant` audits from the recorded
+`deployBlock` to the head (not block 0, which would be thousands of `getLogs` calls on a public
+chain) and requires `issued - burned` to equal `totalSupply()`, exiting 1 on a mismatch or a
+mint whose sender is not the owner, and 2 if the supply cannot be read. It also fails when
+`owner()` has drifted from the owner recorded in the file, because a stale record is how an
+audit quietly checks the wrong thing. `ops/install-audit-task.ps1` registers it daily at 07:50.
 
 It needs no ledger, and it recovers more than the ledger ever held: a mint that happened before
 the ledger existed, or after it was deleted, is still there. What it cannot recover is which

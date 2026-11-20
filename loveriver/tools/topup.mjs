@@ -47,6 +47,7 @@ import { readFullMark, writeFullMark } from './full-mark.mjs';
 import { gmt11, nextWindowAfter, openWindowAt, resolveNow } from './mint-window.mjs';
 import { appendLedger, deferPurge, purgeLedger, RETENTION_MS } from './mint-ledger.mjs';
 import { assessPurge, DEFAULT_TASK as DEFAULT_PURGE_TASK, DEFAULT_HEARTBEAT } from './purge-watch.mjs';
+import { DEFAULT_DEPLOYMENTS, deploymentFor } from './deployments.mjs';
 
 const argv = process.argv.slice(2);
 const flag = (n) => argv.includes(`--${n}`);
@@ -66,7 +67,7 @@ const ABI = [
 const file = resolve(value('file', 'wallets.json'));
 const stateFile = resolve('admin-full-mark.json');
 const rpc = value('rpc', process.env.RPC_URL);
-const tokenAddress = value('token', process.env.LOVERIVER_TOKEN);
+let tokenAddress = value('token', process.env.LOVERIVER_TOKEN);
 const targetArg = value('target', '');
 const ledgerFile = resolve(value('ledger', 'mint-ledger.jsonl'));
 
@@ -113,12 +114,28 @@ if (bad !== -1) {
 }
 console.log(`  ${admins.length} admin addresses derived from ${saved.paths.admins.path}, all match the file`);
 
-if (!rpc || !tokenAddress) {
-  console.error('  --rpc and --token are required: balances are read, never assumed');
+if (!rpc) {
+  console.error('  --rpc is required (or RPC_URL): balances are read, never assumed');
   process.exit(2);
 }
 
 const provider = new JsonRpcProvider(rpc);
+
+// The address lives in deployments.json, looked up by the chain id the RPC reports: the
+// top-up scheduler and this shell should not be two places that can disagree about which
+// token they are filling. --token still overrides it for a one-off.
+if (!tokenAddress) {
+  const network = await provider.getNetwork();
+  try {
+    const deployment = deploymentFor(network.chainId, value('deployments', DEFAULT_DEPLOYMENTS));
+    tokenAddress = deployment.token;
+    console.log(`  token ${tokenAddress} from deployments.json (chain ${network.chainId})`);
+  } catch (error) {
+    console.error(`  ${error.message}`);
+    process.exit(2);
+  }
+}
+
 const reader = new Contract(tokenAddress, ABI, provider);
 const balances = await Promise.all(admins.map((address) => reader.balanceOf(address)));
 const highest = balances.reduce((max, balance) => (balance > max ? balance : max), 0n);

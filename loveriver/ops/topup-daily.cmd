@@ -8,8 +8,8 @@ rem Secrets come from ops\topup.env (gitignored), never from the task definition
 rem would be visible in the Task Scheduler UI:
 rem
 rem   RPC_URL=https://...
-rem   LOVERIVER_TOKEN=0x...
 rem   OWNER_KEY=0x...
+rem (the token address is not here: deployments.json is keyed by the chain id the RPC reports)
 rem   NODE=C:\Program Files\nodejs\node.exe   (optional; node must be found otherwise)
 rem
 rem Plain KEY=value lines, no quotes and no spaces around "=", because the POSIX wrapper
@@ -35,7 +35,6 @@ if not exist "%ENV_FILE%" goto :noenv
 for /f "usebackq tokens=1,* delims==" %%A in ("%ENV_FILE%") do if not "%%B"=="" set "%%A=%%B"
 
 if not defined RPC_URL goto :incomplete
-if not defined LOVERIVER_TOKEN goto :incomplete
 if not defined OWNER_KEY goto :incomplete
 if not defined NODE set "NODE=node"
 
@@ -43,7 +42,7 @@ set "LOVERIVER_BROADCAST=yes"
 pushd "%APP_DIR%"
 
 echo ===== %DATE% %TIME% topup --within-window>>"%LOG%"
-"%NODE%" tools\topup.mjs --within-window --rpc "%RPC_URL%" --token "%LOVERIVER_TOKEN%" --broadcast>>"%LOG%" 2>&1
+"%NODE%" tools\topup.mjs --within-window --rpc "%RPC_URL%" --broadcast>>"%LOG%" 2>&1
 set "STATUS=%ERRORLEVEL%"
 rem The space before >> matters: "%STATUS%>>" would be read as a descriptor redirect and the
 rem exit code would vanish from the line.
@@ -57,5 +56,5 @@ echo %DATE% %TIME% no env file at %ENV_FILE%>>"%LOG%"
 exit /b 2
 
 :incomplete
-echo %DATE% %TIME% env incomplete: RPC_URL, LOVERIVER_TOKEN and OWNER_KEY are required in %ENV_FILE%>>"%LOG%"
+echo %DATE% %TIME% env incomplete: RPC_URL and OWNER_KEY are required in %ENV_FILE%>>"%LOG%"
 exit /b 2

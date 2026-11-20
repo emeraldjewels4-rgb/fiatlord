@@ -20,7 +20,14 @@
  *   node tools/mint-audit.mjs --rpc http://127.0.0.1:8545 --token 0x...
  *   node tools/mint-audit.mjs --rpc ... --token ... --from 2026-11-20 --to 2026-11-20
  *   node tools/mint-audit.mjs --rpc ... --token ... --json > mints.json
+ *   node tools/mint-audit.mjs --rpc ... --token ... --invariant
  *   node tools/mint-audit.mjs --selftest
+ *
+ * --invariant audits the WHOLE chain (block 0 to the head, --from and --to ignored) and then
+ * requires issued - burned to equal totalSupply(). A range would make that arithmetic
+ * meaningless: a day's mints minus a day's burns is not the supply. This is the mode the
+ * schedule runs, so an unauthorised mint or burn surfaces within a day instead of at audit
+ * time, and a supply that does not add up is a failed check, not a footnote.
  *
  * A bare date is a whole UTC day; an ISO instant is taken as given.
  *
@@ -29,6 +36,7 @@
  * chain, which is a typo or the wrong network, not an empty audit.
  */
 import { JsonRpcProvider, Interface, formatUnits } from 'ethers';
+import { DEFAULT_DEPLOYMENTS, deploymentFor } from './deployments.mjs';
 
 const DAY_MS = 86_400_000;
 const CHUNK = 10_000; // blocks per eth_getLogs call, under every common node limit
@@ -110,10 +118,12 @@ if (has('--selftest')) {
   process.exit(failures === 0 ? 0 : 1);
 }
 
+const invariant = has('--invariant');
+
 const rpc = value('rpc', process.env.RPC_URL);
-const token = value('token', process.env.LOVERIVER_TOKEN);
-if (!rpc || !token) cannotRun('--rpc and --token are required (or RPC_URL and LOVERIVER_TOKEN)');
-if (!/^0x[0-9a-fA-F]{40}$/.test(token)) cannotRun(`--token ${token} is not an address`);
+const givenToken = value('token', process.env.LOVERIVER_TOKEN);
+if (!rpc) cannotRun('--rpc is required (or RPC_URL)');
+if (givenToken && !/^0x[0-9a-fA-F]{40}$/.test(givenToken)) cannotRun(`--token ${givenToken} is not an address`);
 
 const fromText = value('from', iso(Date.now() - DAY_MS));
 const toText = value('to', iso(Date.now()));
@@ -125,6 +135,20 @@ if (fromMs > toMs) cannotRun(`--from ${iso(fromMs)} is after --to ${iso(toMs)}`)
 
 const provider = new JsonRpcProvider(rpc);
 const network = await provider.getNetwork().catch(() => cannotRun(`cannot reach ${rpc}`));
+
+// The address comes from deployments.json unless one was passed, looked up by the chain id the
+// RPC reports rather than by whatever chain a copied command was written for.
+let deployment = null;
+let token = givenToken;
+if (!token) {
+  try {
+    deployment = deploymentFor(network.chainId, value('deployments', DEFAULT_DEPLOYMENTS));
+  } catch (error) {
+    cannotRun(error.message);
+  }
+  token = deployment.token;
+}
+
 const code = await provider.getCode(token).catch(() => cannotRun(`cannot read the chain at ${rpc}`));
 if (code === '0x') {
   cannotRun(
@@ -164,6 +188,11 @@ if (currentOwner === null) {
   );
 }
 
+// deployments.json records who owned the token at deployment. If the chain disagrees, the file
+// is stale - and a stale record is how an audit ends up confidently checking the wrong thing.
+const recordedOwner = deployment?.owner ? deployment.owner.toLowerCase() : null;
+const ownerDrifted = recordedOwner !== null && recordedOwner !== currentOwner;
+
 const latest = await provider.getBlockNumber();
 const timeCache = new Map();
 async function timeAt(block) {
@@ -171,8 +200,11 @@ async function timeAt(block) {
   return timeCache.get(block);
 }
 
-const fromBlock = await firstBlockAtOrAfter(timeAt, latest, fromMs);
-const toBlock = await lastBlockAtOrBefore(timeAt, latest, toMs);
+// --invariant has to see every mint and burn the token ever made, or the arithmetic below is
+// comparing a slice against the whole.
+const invariantStart = deployment?.deployBlock ?? 0;
+const fromBlock = invariant ? invariantStart : await firstBlockAtOrAfter(timeAt, latest, fromMs);
+const toBlock = invariant ? latest : await lastBlockAtOrBefore(timeAt, latest, toMs);
 const inRange = fromBlock !== null && toBlock !== null && fromBlock <= toBlock;
 
 const iface = new Interface(['event Transfer(address indexed from, address indexed to, uint256 value)']);
@@ -220,8 +252,33 @@ for (const row of mints) {
 const sum = (rows) => rows.reduce((total, row) => total + row.amountWei, 0n);
 const issued = sum(mints);
 const burned = sum(burns);
+const net = issued - burned;
 const blocksScanned = inRange ? toBlock - fromBlock + 1 : 0;
-const exitCode = unsigned.length > 0 ? 1 : 0;
+
+// The supply invariant: every token that exists came from a mint and every one that stopped
+// existing went to a burn, so totalSupply() must equal issued - burned over the whole history.
+const supplyIface = new Interface(['function totalSupply() view returns (uint256)']);
+async function chainSupply() {
+  try {
+    const raw = await provider.send('eth_call', [{ to: token, data: supplyIface.encodeFunctionData('totalSupply') }, 'latest']);
+    if (!raw || raw === '0x') return null;
+    return supplyIface.decodeFunctionResult('totalSupply', raw)[0];
+  } catch {
+    return null;
+  }
+}
+
+let chainTotal = null;
+let supplyMatches = null;
+if (invariant) {
+  chainTotal = await chainSupply();
+  if (chainTotal === null) {
+    cannotRun(`cannot read totalSupply() from ${token}, so issued minus burned cannot be checked against the chain`);
+  }
+  supplyMatches = chainTotal === net;
+}
+
+const exitCode = unsigned.length > 0 || supplyMatches === false || ownerDrifted ? 1 : 0;
 const amount = (row) => ({ ...row, amount: lvr(row.amountWei), amountWei: row.amountWei.toString() });
 
 const report = {
@@ -233,9 +290,15 @@ const report = {
   fromBlock,
   toBlock,
   blocksScanned,
+  deployment: deployment
+    ? { chainId: deployment.chainId, token: deployment.token, deployBlock: deployment.deployBlock, owner: deployment.owner }
+    : null,
   mints: mints.map(amount),
   burns: burns.map(amount),
   totals: { mintedWei: issued.toString(), minted: lvr(issued), burnedWei: burned.toString(), burned: lvr(burned) },
+  ...(invariant
+    ? { supply: { netWei: net.toString(), net: lvr(net), totalSupplyWei: chainTotal.toString(), totalSupply: lvr(chainTotal), matches: supplyMatches } }
+    : {}),
 };
 
 if (has('--json')) {
@@ -244,9 +307,10 @@ if (has('--json')) {
 }
 
 const out = [];
-out.push(`  token  ${token} on chain ${network.chainId}`);
+out.push(`  token  ${token} on chain ${network.chainId}${deployment ? ' (from deployments.json)' : ''}`);
 out.push(`  owner  ${currentOwner}`);
-out.push(`  range  ${iso(fromMs)} .. ${iso(toMs)}`);
+if (ownerDrifted) out.push(`  record  deployments.json says owner ${deployment.owner}; the chain says ${currentOwner}`);
+out.push(invariant ? `  range  block ${invariantStart} to the head, the whole life of the token (--invariant)` : `  range  ${iso(fromMs)} .. ${iso(toMs)}`);
 if (fromBlock === null || toBlock === null) out.push('  blocks none: the chain has no block inside that range');
 else if (fromBlock > toBlock) out.push(`  blocks none: blocks ${fromBlock} and later are already past ${iso(toMs)}`);
 else out.push(`  blocks ${fromBlock}..${toBlock} (${blocksScanned} scanned)`);
@@ -290,5 +354,22 @@ if (mints.length > 0) {
 }
 
 out.push('', `  supply  ${lvr(issued)} issued, ${lvr(burned)} burned in this range; the chain has no window or rule column, only what happened`);
+
+if (invariant) {
+  out.push('');
+  if (supplyMatches) {
+    out.push(`  invariant  issued ${lvr(issued)} - burned ${lvr(burned)} = ${lvr(net)}, and totalSupply() is ${lvr(chainTotal)}: they agree`);
+  } else {
+    const delta = net - chainTotal;
+    out.push('  INVARIANT FAILED: issued minus burned does not equal totalSupply().');
+    out.push(`    issued - burned  ${lvr(net)} LVR`);
+    out.push(`    totalSupply()    ${lvr(chainTotal)} LVR`);
+    out.push(`    difference       ${lvr(delta)} LVR (${delta > 0n ? 'the chain holds less than the logs say' : 'the chain holds more than the logs say'})`);
+    out.push('  One of these is true: a mint or burn happened without a Transfer log this run could');
+    out.push('  see, the token exposes a supply it can change some other way, or the address is the');
+    out.push('  wrong token on a chain that also carries this one. Treat the history as unverified.');
+  }
+}
+
 console.log(out.join('\n'));
 process.exit(exitCode);

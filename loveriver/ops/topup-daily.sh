@@ -8,7 +8,7 @@
 # Secrets are read from an env file, never from this script and never from the crontab:
 #
 #   RPC_URL=https://...
-#   LOVERIVER_TOKEN=0x...
+# (no token address here: deployments.json holds it, keyed by chain id)
 #   OWNER_KEY=0x...
 #
 # Plain KEY=value lines with no quotes, because the Windows wrapper parses the same file the
@@ -44,11 +44,12 @@ set +a
 # The same file is shared with the Windows wrapper, where an editor may have written CRLF.
 # sh would carry the \r into the value and the RPC URL would not resolve, so strip it here.
 RPC_URL=$(printf '%s' "${RPC_URL:-}" | tr -d '\r')
-LOVERIVER_TOKEN=$(printf '%s' "${LOVERIVER_TOKEN:-}" | tr -d '\r')
 OWNER_KEY=$(printf '%s' "${OWNER_KEY:-}" | tr -d '\r')
 
-if [ -z "$RPC_URL" ] || [ -z "$LOVERIVER_TOKEN" ] || [ -z "$OWNER_KEY" ]; then
-  printf '%s env incomplete: RPC_URL, LOVERIVER_TOKEN and OWNER_KEY are required in %s\n' \
+# No token address here: deployments.json is keyed by the chain id the RPC reports, so the
+# cron job, the Windows task and a shell run cannot each name a different token.
+if [ -z "$RPC_URL" ] || [ -z "$OWNER_KEY" ]; then
+  printf '%s env incomplete: RPC_URL and OWNER_KEY are required in %s\n' \
     "$(stamp)" "$ENV_FILE" >>"$LOG"
   exit 2
 fi
@@ -62,7 +63,7 @@ cd "$APP_DIR" || exit 2
 
 {
   printf '===== %s topup --within-window\n' "$(stamp)"
-  "$NODE" tools/topup.mjs --within-window --rpc "$RPC_URL" --token "$LOVERIVER_TOKEN" --broadcast
+  "$NODE" tools/topup.mjs --within-window --rpc "$RPC_URL" --broadcast
   status=$?
   printf '===== exit %s\n' "$status"
 } >>"$LOG" 2>&1

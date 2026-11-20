@@ -107,6 +107,7 @@ Write-Host "    network   $($task.Settings.RunOnlyIfNetworkAvailable)   on batte
 if (-not (Test-Path -LiteralPath $EnvFile)) {
   Write-Host ''
   Write-Host "  NOTE: $EnvFile does not exist yet, so a run logs 'no env file' and exits 2."
-  Write-Host '        Copy ops\topup.env.example to ops\topup.env and fill in RPC_URL,'
-  Write-Host '        LOVERIVER_TOKEN and OWNER_KEY. Until then the task is installed but inert.'
+      Write-Host '        Copy ops\topup.env.example to ops\topup.env and fill in RPC_URL and'
+    Write-Host '        OWNER_KEY (the token address is in deployments.json). Until then the task'
+    Write-Host '        is installed but inert.'
 }
