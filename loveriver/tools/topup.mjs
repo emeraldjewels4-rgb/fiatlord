@@ -41,8 +41,10 @@
  *   ... add --broadcast and OWNER_KEY, with LOVERIVER_BROADCAST=yes in the environment
  */
 import { JsonRpcProvider, Wallet, Contract, parseUnits, formatUnits, HDNodeWallet, Mnemonic } from 'ethers';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { readFullMark, writeFullMark } from './full-mark.mjs';
 import { gmt11, nextWindowAfter, openWindowAt, resolveNow } from './mint-window.mjs';
 import { appendLedger, deferPurge, purgeLedger, RETENTION_MS } from './mint-ledger.mjs';
@@ -78,6 +80,56 @@ if (tokenAddress && !/^0x[0-9a-fA-F]{40}$/.test(tokenAddress)) {
   console.error(`  --token ${tokenAddress} is not an address`);
   process.exit(2);
 }
+// The same refusal mint-audit and fund already make, covered here so the three cannot drift apart.
+// Every case is a child process that stops at an argument check: nothing below reads a wallet,
+// touches the ledger or builds a provider, and the scratch wallets file is a real path with no
+// mnemonic, so the run that gets past the address fails on the next check rather than on a stack
+// trace.
+if (flag('selftest')) {
+  let failures = 0;
+  const check = (label, ok) => {
+    if (!ok) failures++;
+    console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${label}`);
+  };
+  const scratch = mkdtempSync(join(tmpdir(), 'loveriver-topup-'));
+  const scratchLedger = join(scratch, 'ledger.jsonl');
+  const scratchWallets = join(scratch, 'wallets.json');
+  writeFileSync(scratchWallets, '{}');
+  // LOVERIVER_TOKEN is cleared for every case unless the case sets it, so a token exported in the
+  // operator's shell cannot make this selftest pass or fail for the wrong reason.
+  const run = (args, env = {}) =>
+    spawnSync(process.execPath, [process.argv[1], '--ledger', scratchLedger, ...args], {
+      encoding: 'utf8',
+      env: { ...process.env, LOVERIVER_TOKEN: '', ...env },
+    });
+  try {
+    const badFlag = run(['--token', '0xnot-an-address']);
+    check(
+      'a --token that is not an address exits 2 and names it',
+      badFlag.status === 2 && /--token 0xnot-an-address is not an address/.test(`${badFlag.stderr}`)
+    );
+
+    const badEnv = run(['--rpc', 'http://127.0.0.1:1'], { LOVERIVER_TOKEN: '0x1234' });
+    check(
+      'a LOVERIVER_TOKEN that is not an address is refused in the same words',
+      badEnv.status === 2 && /--token 0x1234 is not an address/.test(`${badEnv.stderr}`)
+    );
+
+    const good = run(['--token', '0x' + '11'.repeat(20), '--file', scratchWallets]);
+    check(
+      'a good address is not refused: the run goes on to the next check',
+      good.status === 2 &&
+        /has no admin list/.test(`${good.stderr}`) &&
+        !/is not an address/.test(`${good.stderr}`)
+    );
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+
+  console.log(failures === 0 ? '  topup selftest PASSED' : `  topup selftest FAILED (${failures})`);
+  process.exit(failures === 0 ? 0 : 1);
+}
+
 const targetArg = value('target', '');
 const ledgerFile = resolve(value('ledger', 'mint-ledger.jsonl'));
 
