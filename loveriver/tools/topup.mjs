@@ -68,6 +68,16 @@ const file = resolve(value('file', 'wallets.json'));
 const stateFile = resolve('admin-full-mark.json');
 const rpc = value('rpc', process.env.RPC_URL);
 let tokenAddress = value('token', process.env.LOVERIVER_TOKEN);
+
+// The same check, in the same words, as the audit and the funder: a typo in --token or
+// LOVERIVER_TOKEN is a usage error, and it has to cost a second rather than a provider connection,
+// a ledger purge and an ethers message about an invalid address several calls later. Validated
+// here, before anything reads or writes state - it also names --token when the value came from the
+// environment, which is how the other two tools report it.
+if (tokenAddress && !/^0x[0-9a-fA-F]{40}$/.test(tokenAddress)) {
+  console.error(`  --token ${tokenAddress} is not an address`);
+  process.exit(2);
+}
 const targetArg = value('target', '');
 const ledgerFile = resolve(value('ledger', 'mint-ledger.jsonl'));
 
