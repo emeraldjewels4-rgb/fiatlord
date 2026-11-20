@@ -27,9 +27,13 @@
  * chains and the `_readme` note are untouched.
  */
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { DEFAULT_DEPLOYMENTS } from './deployments.mjs';
+
+// Loads ethers without importing it: nothing is resolved until the require below runs.
+const require = createRequire(import.meta.url);
 
 const argv = process.argv.slice(2);
 const has = (flag) => argv.includes(flag);
@@ -58,11 +62,12 @@ export function findArtifact(root = BROADCAST, chain = null) {
 }
 
 /** The four facts, or a throw saying which one the artifact cannot answer. */
-export async function readArtifact(path) {
-  // ethers is imported here rather than at the top so --check can answer "no broadcast to compare"
-  // without node_modules: the hook runs it on every commit, and on a machine that has never run
-  // npm install there is nothing to checksum and nothing to install first.
-  const { getAddress } = await import('ethers');
+export function readArtifact(path) {
+  // ethers is required here rather than imported at the top so --check can answer "no broadcast to
+  // compare" without node_modules: the hook runs it on every commit, and a machine that has never
+  // run npm install has nothing to checksum and nothing to install first. createRequire keeps that
+  // lazy load synchronous, so reading an artifact does not make its callers async.
+  const { getAddress } = require('ethers');
   let artifact;
   try {
     artifact = JSON.parse(readFileSync(path, 'utf8'));
@@ -143,7 +148,7 @@ if (has('--selftest')) {
     return root;
   };
   try {
-    const parsed = await readArtifact(writeFile('run-latest.json', artifact));
+    const parsed = readArtifact(writeFile('run-latest.json', artifact));
     check(
       'chain id, token, block and signer are read from the artifact',
       parsed.chainId === 31337 && parsed.deployBlock === 8 && /^0x[a-fA-F0-9]{40}$/.test(parsed.owner) && parsed.token !== parsed.token.toLowerCase()
@@ -170,11 +175,11 @@ if (has('--selftest')) {
     check('a new chain gets an entry', recordDeployment(parsed, fresh).changed &&
       JSON.parse(readFileSync(fresh, 'utf8'))['31337'].token === parsed.token);
 
-    const refused = async (label, run) => {
-      try { await run(); return check(label, false); } catch { return check(label, true); }
+    const refused = (label, run) => {
+      try { run(); return check(label, false); } catch { return check(label, true); }
     };
-    await refused('a reverted deploy is refused', () => readArtifact(writeFile('reverted.json', { ...artifact, receipts: [{ transactionHash: '0xaaa', blockNumber: '0x8', status: '0x0' }] })));
-    await refused('an empty artifact is refused', () => readArtifact(writeFile('empty.json', '')));
+    refused('a reverted deploy is refused', () => readArtifact(writeFile('reverted.json', { ...artifact, receipts: [{ transactionHash: '0xaaa', blockNumber: '0x8', status: '0x0' }] })));
+    refused('an empty artifact is refused', () => readArtifact(writeFile('empty.json', '')));
 
     const two = record('two', [1, 31337]);
     const ambiguous = findArtifact(two, null);
@@ -217,7 +222,7 @@ if (!found.path) {
 
 let deployment;
 try {
-  deployment = await readArtifact(found.path);
+  deployment = readArtifact(found.path);
 } catch (error) {
   stop(error.message);
 }
