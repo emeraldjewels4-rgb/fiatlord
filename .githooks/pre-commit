@@ -1,0 +1,107 @@
+#!/bin/sh
+# Pre-commit gate for the Loveriver tools.
+#
+# Every `selftest*` script in loveriver/package.json runs before a commit is allowed. Those are
+# the only executable proof that the tooling behaves - the key derivation, the mint ledger, the
+# clock window, the purge watch, the chain audit, the wallet restore and the repo backup - and a
+# commit that breaks one of them is exactly the change worth catching before it becomes history.
+#
+# The list is discovered from package.json, not written here, so a new tool with a selftest is
+# gated the moment its script exists. All eight currently take about 20 seconds together and
+# reach no network.
+#
+# Then one more gate with no selftest of its own: deployments.json must match the newest deploy
+# broadcast. A redeploy nobody ran `npm run deploy:record` after leaves the audit, the top-up and
+# the funder talking confidently to the previous token, which no test would notice - the record is
+# right about a token that is no longer the one deployed.
+#
+# If the gate cannot run it refuses instead of passing: node_modules missing means the tests
+# cannot import ethers, and a silent pass would be worse than a blocked commit. git commit
+# --no-verify is the deliberate, one-off bypass.
+set -u
+
+root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 1
+app="$root/loveriver"
+
+if [ ! -f "$app/package.json" ]; then
+  echo "pre-commit: no loveriver/package.json under $root; nothing to gate" >&2
+  exit 0
+fi
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "pre-commit: REFUSED - node is not on PATH, so the selftests cannot run." >&2
+  exit 1
+fi
+
+if [ ! -d "$app/node_modules" ]; then
+  echo "pre-commit: REFUSED - $app/node_modules is missing, so the selftests cannot run." >&2
+  echo "            cd loveriver && npm install   (then commit again)" >&2
+  exit 1
+fi
+
+names=$(node -e '
+const pkg = require(process.argv[1]);
+const names = Object.keys(pkg.scripts || {}).filter((name) => /^selftest/.test(name));
+if (names.length === 0) process.exit(3);
+process.stdout.write(names.join("\n"));
+' "$app/package.json")
+discovered=$?
+if [ "$discovered" -eq 3 ]; then
+  echo "pre-commit: no selftest* scripts in loveriver/package.json; nothing to gate" >&2
+  exit 0
+elif [ "$discovered" -ne 0 ]; then
+  echo "pre-commit: REFUSED - could not read the selftest list from $app/package.json" >&2
+  exit 1
+fi
+
+total=0
+failed=0
+echo "pre-commit: loveriver tool selftests" >&2
+
+# Heredoc rather than a pipe so npm cannot swallow the loop's stdin or its exit status.
+while IFS= read -r name; do
+  [ -n "$name" ] || continue
+  total=$((total + 1))
+  started=$(date +%s)
+  output=$(cd "$app" && npm run --silent "$name" 2>&1)
+  status=$?
+  elapsed=$(( $(date +%s) - started ))
+  if [ "$status" -eq 0 ]; then
+    printf '  ok    %-18s %2ss\n' "$name" "$elapsed" >&2
+  else
+    failed=$((failed + 1))
+    printf '  FAIL  %-18s %2ss (exit %s)\n' "$name" "$elapsed" "$status" >&2
+    printf '%s\n' "$output" | tail -25 | sed 's/^/        /' >&2
+  fi
+done <<EOF
+$names
+EOF
+
+if [ "$failed" -ne 0 ]; then
+  echo "" >&2
+  echo "pre-commit: REFUSED - $failed of $total selftests failed; the commit was not created." >&2
+  echo "            Fix the tool, or bypass once with: git commit --no-verify" >&2
+  exit 1
+fi
+
+echo "  all $total passed" >&2
+
+# The record check. --check exits 1 when deployments.json disagrees with the newest broadcast and 0
+# when they agree; with no broadcast at all it exits 0 and says it skipped, because a fresh clone
+# has nothing to be stale against and a commit there must not be blocked. Any other non-zero is a
+# check that could not run (an unreadable or reverted artifact), and that is refused rather than
+# passed: a gate that cannot see must not claim the record is current.
+echo "pre-commit: deployments.json against the newest broadcast" >&2
+record=$(cd "$app" && node tools/record-deployment.mjs --check 2>&1)
+record_status=$?
+if [ "$record_status" -ne 0 ]; then
+  echo "  FAIL  deployments.json (exit $record_status)" >&2
+  printf '%s\n' "$record" | tail -12 | sed 's/^/        /' >&2
+  echo "" >&2
+  echo "pre-commit: REFUSED - the record is stale, or the check could not run; the commit was not created." >&2
+  echo "            cd loveriver && npm run deploy:record -- --chain <id>   then commit again" >&2
+  echo "            (the id is in the FAIL output above; with one chain it is the only one listed)" >&2
+  exit 1
+fi
+printf '  ok    %s\n' "$(printf '%s' "$record" | tail -1 | sed 's/^ *//')" >&2
+exit 0
