@@ -208,7 +208,10 @@ if (flag('selftest')) {
   );
 
   const heartbeat = resolve('cache', 'purge-watch-heartbeat');
-  const { writeFileSync, utimesSync, rmSync } = await import('node:fs');
+  const { mkdirSync, writeFileSync, utimesSync, rmSync } = await import('node:fs');
+  // cache/ is gitignored, so a fresh clone has no such directory: the first write threw ENOENT,
+  // which failed this selftest and made the pre-commit hook refuse the clone's first commit.
+  mkdirSync(resolve('cache'), { recursive: true });
   rmSync(heartbeat, { force: true });
   check('a missing heartbeat has not run', heartbeatStatus(heartbeat).ran, false);
   writeFileSync(heartbeat, 'x');
