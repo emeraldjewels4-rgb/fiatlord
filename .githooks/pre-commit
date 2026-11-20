@@ -2,7 +2,8 @@
 # Pre-commit gate for the Loveriver tools.
 #
 # Every `selftest*` script in loveriver/package.json runs before a commit is allowed, but only for
-# a commit that stages something under loveriver/ (or this directory) - see the scope check below.
+# a commit that stages something under loveriver/, regtest/ or this directory - see the scope
+# check below.
 # Those are the only executable proof that the tooling behaves - the key derivation, the mint
 # ledger, the clock window, the purge watch, the chain audit, the wallet restore, the repo backup,
 # the deployment record and the funder - and a commit that breaks one of them is exactly the change
@@ -30,7 +31,14 @@
 # normally enough. Worth knowing before trusting a clone that quietly commits anything.
 set -u
 
-root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 1
+# A refusal is a line that begins "  REFUSED: " and exits 2, the same shape the deploy scripts in
+# the sibling repository use, so a caller or a CI step can tell "the gate said no" from "the gate
+# fell over" - an unhandled error still exits 1, and only a refusal exits 2. Each refusal keeps its
+# own sentence and its own next step, so the output names which of them fired.
+root=$(git rev-parse --show-toplevel 2>/dev/null) || {
+  echo "  REFUSED: not inside a git work tree, so there is nothing to gate." >&2
+  exit 2
+}
 app="$root/loveriver"
 
 if [ ! -f "$app/package.json" ]; then
@@ -39,8 +47,8 @@ if [ ! -f "$app/package.json" ]; then
 fi
 
 if ! command -v node >/dev/null 2>&1; then
-  echo "pre-commit: REFUSED - node is not on PATH, so neither the record check nor the selftests can run." >&2
-  exit 1
+  echo "  REFUSED: node is not on PATH, so neither the record check nor the selftests can run." >&2
+  exit 2
 fi
 
 # The record check, before anything is scoped out. --check exits 1 when deployments.json disagrees
@@ -56,21 +64,24 @@ if [ "$record_status" -ne 0 ]; then
   echo "  FAIL  deployments.json (exit $record_status)" >&2
   printf '%s\n' "$record" | tail -12 | sed 's/^/        /' >&2
   echo "" >&2
-  echo "pre-commit: REFUSED - the record is stale, or the check could not run; the commit was not created." >&2
-  echo "            cd loveriver && npm run deploy:record -- --chain <id>   then commit again" >&2
-  echo "            (the id is in the FAIL output above; with one chain it is the only one listed)" >&2
-  exit 1
+  echo "  REFUSED: deployments.json disagrees with the newest broadcast, or the check could not run (exit $record_status); the commit was not created." >&2
+  echo "           cd loveriver && npm run deploy:record -- --chain <id>   then commit again" >&2
+  echo "           (the id is in the FAIL output above; with one chain it is the only one listed)" >&2
+  exit 2
 fi
 printf '  ok    %s\n' "$(printf '%s' "$record" | tail -1 | sed 's/^ *//')" >&2
 
-# Scope. The selftests exercise loveriver/tools and nothing else: a commit that stages only
-# regtest/, threads/ or a top-level note cannot break them, and spending 25 seconds on a gate that
+# Scope. The selftests exercise loveriver/tools, and regtest/ is what those tools run against:
+# chain.sh, selftest.sh and the ord scripts are the chain the funder, the top-up and the deployment
+# record talk to, so a change there can break a tool without touching a line of it - the breakage a
+# commit that only touched regtest/ used to walk straight past. A commit that stages only
+# threads/ or a top-level note still cannot, and spending 25 seconds on a gate that
 # cannot fail is how people learn to reach for --no-verify. The gate skips those commits and says
 # so - out loud, with the paths it saw - because a gate that goes quiet without explanation is
 # indistinguishable from one that is not installed.
 staged=$(git diff --cached --name-only 2>/dev/null || true)
-if ! printf '%s\n' "$staged" | grep -qE '^(loveriver/|\.githooks/)'; then
-  echo "pre-commit: SKIPPED - no staged path under loveriver/ or .githooks/, so the tool selftests were not run." >&2
+if ! printf '%s\n' "$staged" | grep -qE '^(loveriver/|regtest/|\.githooks/)'; then
+  echo "pre-commit: SKIPPED - no staged path under loveriver/, regtest/ or .githooks/, so the tool selftests were not run." >&2
   if [ -z "$staged" ]; then
     echo "            nothing is staged at all (an empty or amended commit); the selftests will run for the next commit that touches those paths." >&2
   else
@@ -80,9 +91,9 @@ if ! printf '%s\n' "$staged" | grep -qE '^(loveriver/|\.githooks/)'; then
 fi
 
 if [ ! -d "$app/node_modules" ]; then
-  echo "pre-commit: REFUSED - $app/node_modules is missing, so the selftests cannot run." >&2
-  echo "            cd loveriver && npm install   (then commit again)" >&2
-  exit 1
+  echo "  REFUSED: $app/node_modules is missing, so the selftests cannot run." >&2
+  echo "           cd loveriver && npm install   (then commit again)" >&2
+  exit 2
 fi
 
 names=$(node -e '
@@ -96,8 +107,8 @@ if [ "$discovered" -eq 3 ]; then
   echo "pre-commit: no selftest* scripts in loveriver/package.json; nothing to gate" >&2
   exit 0
 elif [ "$discovered" -ne 0 ]; then
-  echo "pre-commit: REFUSED - could not read the selftest list from $app/package.json" >&2
-  exit 1
+  echo "  REFUSED: could not read the selftest list from $app/package.json (exit $discovered)." >&2
+  exit 2
 fi
 
 total=0
@@ -125,9 +136,9 @@ EOF
 
 if [ "$failed" -ne 0 ]; then
   echo "" >&2
-  echo "pre-commit: REFUSED - $failed of $total selftests failed; the commit was not created." >&2
-  echo "            Fix the tool, or bypass once with: git commit --no-verify" >&2
-  exit 1
+  echo "  REFUSED: $failed of $total selftests failed; the commit was not created." >&2
+  echo "           Fix the tool, or bypass once with: git commit --no-verify" >&2
+  exit 2
 fi
 
 echo "  all $total passed" >&2
