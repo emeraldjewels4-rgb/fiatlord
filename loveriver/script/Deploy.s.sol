@@ -117,10 +117,7 @@ contract Deploy is Script {
             console.log("  admin      ", admins[i]);
         }
 
-        // The record is not written from here: a script editing the repository's committed file
-        // is not something to do mid-broadcast. The one command below reads the broadcast that
-        // was just written - chain id, address, block, signer - so nothing is retyped.
-        console.log("");
-        console.log("Record this deploy: node tools/record-deployment.mjs");
+        // Printed, not written: a broadcast should not edit a committed file.
+        console.log("\nRecord this deploy: node tools/record-deployment.mjs");
     }
 }

@@ -22,7 +22,8 @@
     "backup": "node tools/repo-backup.mjs",
     "selftest:backup": "node tools/repo-backup.mjs --selftest",
     "deploy:record": "node tools/record-deployment.mjs",
-    "selftest:deployments": "node tools/record-deployment.mjs --selftest"
+    "selftest:deployments": "node tools/record-deployment.mjs --selftest",
+    "selftest:fund": "node tools/fund.mjs --selftest"
   },
   "dependencies": {
     "ethers": "^6.13.0"

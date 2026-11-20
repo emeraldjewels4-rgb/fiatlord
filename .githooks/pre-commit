@@ -7,7 +7,7 @@
 # commit that breaks one of them is exactly the change worth catching before it becomes history.
 #
 # The list is discovered from package.json, not written here, so a new tool with a selftest is
-# gated the moment its script exists. All eight currently take about 20 seconds together and
+# gated the moment its script exists. All nine currently take about 25 seconds together and
 # reach no network.
 #
 # Then one more gate with no selftest of its own: deployments.json must match the newest deploy
