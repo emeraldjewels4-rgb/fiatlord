@@ -9,7 +9,8 @@
  * Forge's own broadcast artifact instead: the chain id, the new address, the block it landed in
  * and the account that signed are all in that file already.
  *
- *   node tools/record-deployment.mjs                 record the newest broadcast
+ *   node tools/record-deployment.mjs                 record the newest broadcast (one chain only)
+ *   node tools/record-deployment.mjs --chain 1       record the newest run on that chain
  *   node tools/record-deployment.mjs --dry-run       say what it would write
  *   node tools/record-deployment.mjs --check         exit 1 if the record is stale (writes nothing)
  *   node tools/record-deployment.mjs --selftest
@@ -26,10 +27,16 @@
  *
  * An entry already in the file keeps its `name` and `note`; only the three facts a redeploy
  * changes are replaced. Other chains are untouched, and the `_readme` note is preserved.
+ *
+ * It will not pick a chain for you when more than one has broadcasts. The newest run by timestamp
+ * is a fine default on a checkout that only ever deployed to anvil, and a trap on one that also
+ * ran mainnet: it would write the local anvil address into the entry the audit and the funder read
+ * on the real chain, and every one of them would then check, fund or report the wrong token without
+ * complaining. With two candidates the only safe answer is the one the operator gives: --chain.
  */
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import { getAddress } from 'ethers';
 import { DEFAULT_DEPLOYMENTS, readDeployments } from './deployments.mjs';
 
@@ -48,11 +55,15 @@ function cannotRun(message) {
 /** The broadcast directory Forge writes: one subdirectory per chain id. */
 const BROADCAST_ROOT = resolve('broadcast/Deploy.s.sol');
 
-/** Newest non-empty run artifact, across chains unless one is named. */
+/**
+ * Newest non-empty run artifact. One chain only: the chain must be named, or be the only one with
+ * artifacts. `chains` on the result is what the caller reports, and is empty only when there is
+ * nothing to compare against at all - the difference between "skipped" and "refused".
+ */
 export function findArtifact(root = BROADCAST_ROOT, chain = null) {
-  if (!existsSync(root)) return { path: null, reason: `no broadcast directory at ${root}` };
+  if (!existsSync(root)) return { path: null, reason: `no broadcast directory at ${root}`, chains: [] };
   const chains = readdirSync(root).filter((name) => /^\d+$/.test(name));
-  if (chains.length === 0) return { path: null, reason: `no chain directories under ${root}` };
+  if (chains.length === 0) return { path: null, reason: `no chain directories under ${root}`, chains: [] };
   const candidates = [];
   for (const name of chains) {
     if (chain !== null && name !== String(chain)) continue;
@@ -66,10 +77,18 @@ export function findArtifact(root = BROADCAST_ROOT, chain = null) {
     }
   }
   if (candidates.length === 0) {
-    return { path: null, reason: `no non-empty run-*.json in ${root}${chain !== null ? `/${chain}` : ''}` };
+    return { path: null, reason: `no non-empty run-*.json in ${root}${chain !== null ? `/${chain}` : ''}`, chains: [] };
+  }
+  const ran = [...new Set(candidates.map((candidate) => candidate.chain))].sort((a, b) => a - b);
+  if (chain === null && ran.length > 1) {
+    return {
+      path: null,
+      chains: ran,
+      reason: `broadcast artifacts exist for more than one chain (${ran.join(', ')}), and the newest run is not a safe choice between them`,
+    };
   }
   candidates.sort((a, b) => b.mtime - a.mtime);
-  return { path: candidates[0].path, reason: null };
+  return { path: candidates[0].path, reason: null, chains: ran };
 }
 
 /** Pull the four facts out of one artifact, or throw with the reason it cannot answer. */
@@ -220,6 +239,24 @@ if (has('--selftest')) {
     const twoCreates = { ...artifact, transactions: [...artifact.transactions, { hash: '0xbbb', transactionType: 'CREATE', contractName: 'Something', contractAddress: '0x' + 'C'.repeat(40), transaction: { from: '0x' + 'B'.repeat(40) } }] };
     const chosen = readArtifact(write('two.json', twoCreates));
     check('with several contracts it still picks Loveriver', chosen.token === parsed.token);
+
+    // Two chains that both broadcast: the newest-by-timestamp answer is exactly the one that must
+    // not be taken, because it could be anvil's deploy landing in mainnet's entry.
+    const multi = join(scratch, 'broadcast', 'Deploy.s.sol');
+    for (const [id, seconds] of [['1', '2000'], ['31337', '1000']]) {
+      mkdirSync(join(multi, id), { recursive: true });
+      writeFileSync(join(multi, id, `run-${seconds}.json`), JSON.stringify({ ...artifact, chain: Number(id) }));
+    }
+    const ambiguous = findArtifact(multi, null);
+    check('two chains with artifacts is refused instead of resolved by timestamp',
+      ambiguous.path === null && ambiguous.chains.join(',') === '1,31337');
+    const named = findArtifact(multi, 1);
+    check('--chain picks that chain and no other', named.path !== null && named.path.includes(`${sep}1${sep}`) && named.chains.join(',') === '1');
+    const alone = join(scratch, 'single', 'Deploy.s.sol');
+    mkdirSync(join(alone, '31337'), { recursive: true });
+    writeFileSync(join(alone, '31337', 'run-1.json'), JSON.stringify(artifact));
+    const single = findArtifact(alone, null);
+    check('one chain on its own still needs no --chain', single.path !== null && single.chains.join(',') === '31337');
   } catch (error) {
     failures++;
     console.log(`  FAIL the selftest itself threw: ${error.message}`);
@@ -237,7 +274,22 @@ const explicit = value('artifact', null);
 let artifactPath = explicit;
 if (!artifactPath) {
   const found = findArtifact(BROADCAST_ROOT, chain === null ? null : Number(chain));
-  if (!found.path) cannotRun(`  ${found.reason}; run script/Deploy.s.sol with --broadcast first, or pass --artifact <path>`);
+  if (!found.path) {
+    // --check runs from the pre-commit hook, where "no broadcast to compare against" is the normal
+    // state of a fresh clone, not a failure: the record cannot be stale against a deploy this
+    // checkout does not have. Recording still refuses in that state, because there is nothing to
+    // read the facts from and a written guess is worse than no entry.
+    if (has('--check') && found.chains.length === 0) {
+      console.log(`  check skipped: ${found.reason}`);
+      process.exit(0);
+    }
+    // Ambiguity is not a skip: there are artifacts, so the record must be checked against one, and
+    // only the operator can say which.
+    const advice = found.chains.length > 0
+      ? `; pass --chain <id> to say which deployment this is`
+      : '; run script/Deploy.s.sol with --broadcast first, or pass --artifact <path>';
+    cannotRun(`  ${found.reason}${advice}`);
+  }
   artifactPath = found.path;
 }
 
