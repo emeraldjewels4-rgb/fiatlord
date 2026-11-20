@@ -29,8 +29,9 @@
  * Exit codes for --status: 0 the scheduler looks alive, 1 it looks dead or unverifiable.
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 export const DEFAULT_TASK = 'Loveriver ledger purge';
 export const DEFAULT_HEARTBEAT = 'logs/ledger-purge.heartbeat';
@@ -156,6 +157,20 @@ export function assessPurge({
   };
 }
 
+// topup.mjs imports assessPurge from this module. Without a guard the CLI below also ran on
+// import: every top-up printed "nothing to do: pass --status or --selftest" ahead of its own
+// output, and `topup.mjs --selftest` ran this tool's selftest and exited, answering for a tool it
+// was never asked about. The CLI belongs to the entry point, so it is run only when this file is.
+const invokedDirectly = (() => {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+})();
+
+if (invokedDirectly) {
 const argv = process.argv.slice(2);
 const flag = (name) => argv.includes(`--${name}`);
 const value = (name, fallback) => {
@@ -239,3 +254,4 @@ if (flag('status')) {
 }
 
 console.log('  nothing to do: pass --status or --selftest');
+}
