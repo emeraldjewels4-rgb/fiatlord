@@ -127,7 +127,7 @@ Checking without writing anything:
 ```powershell
 git bundle verify "D:\loveriver-backup\loveriver-repo-20261120-193141.bundle"
 node tools/repo-backup.mjs --verify-only            # adds the sha256 and the clone comparison
-node tools/repo-backup.mjs --restore-check <file>   # one specific bundle
+node tools/repo-backup.mjs --verify-only <file>     # one specific bundle, same checks
 ```
 
 ## Why the clone, and not just `git bundle verify`

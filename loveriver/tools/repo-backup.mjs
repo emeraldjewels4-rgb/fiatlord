@@ -10,8 +10,7 @@
  *   node tools/repo-backup.mjs                      bundle, verify, restore-check, write manifest
  *   node tools/repo-backup.mjs --out D:\elsewhere   a different destination
  *   node tools/repo-backup.mjs --keep 30            after a good run, prune to the newest 30
- *   node tools/repo-backup.mjs --verify-only <f>    re-check a bundle already on disk
- *   node tools/repo-backup.mjs --restore-check <f>  clone a bundle and compare it with this repo
+ *   node tools/repo-backup.mjs --verify-only <f>    verify a bundle on disk, then clone-check it
  *   node tools/repo-backup.mjs --selftest           prove the checks above can actually fail
  *
  * Exit codes: 0 the bundle verifies and a clone of it matches this repo, 1 a check failed,
@@ -31,6 +30,7 @@ import {
   readFileSync,
   renameSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -101,7 +101,7 @@ function inventory(outDir) {
     .sort()
     .map((name) => {
       const file = join(outDir, name);
-      return { name, file, bytes: readFileSync(file).length };
+      return { name, file, bytes: statSync(file).size };
     });
 }
 
@@ -170,35 +170,37 @@ function restoreCheck(bundleFile, root) {
   }
 }
 
-/** Verify a bundle file on disk: git's own integrity check plus the restore check. */
-function verifyBundle(bundleFile, root, { withRestore = true } = {}) {
+/** Verify a bundle file on disk: git's own integrity check, the sidecar, and the restore check. */
+function verifyBundle(bundleFile, root) {
   if (!existsSync(bundleFile)) return { ok: false, rows: [['file', `MISSING: ${bundleFile}`]] };
-  const rows = [['file', `${bundleFile}  (${readFileSync(bundleFile).length} bytes)`]];
+
+  // Hashed once: this used to read the whole file three times and hash it twice.
+  const actual = sha256(bundleFile);
+  const rows = [['file', `${bundleFile}  (${statSync(bundleFile).size} bytes)`]];
 
   const verify = attempt('git', ['bundle', 'verify', bundleFile], root);
   const verifyText = (verify.stdout + verify.stderr).trim();
   rows.push(['git bundle verify', verify.status === 0 ? 'ok' : `FAILED: ${verifyText.split('\n').slice(-1)[0]}`]);
 
+  // The sidecar is optional - a bundle written before it existed still verifies - so an absent
+  // hash is reported as absent, never as a mismatch.
   const sidecar = `${bundleFile}.sha256`;
-  if (existsSync(sidecar)) {
-    const recorded = readFileSync(sidecar, 'utf8').trim().split(/\s+/)[0];
-    const actual = sha256(bundleFile);
-    rows.push(['sha256', actual === recorded ? `${actual}  (matches the .sha256)` : `MISMATCH: file is ${actual}, recorded ${recorded}`]);
-  } else {
-    rows.push(['sha256', 'no .sha256 next to it (checked, absent)']);
-  }
+  const recorded = existsSync(sidecar) ? readFileSync(sidecar, 'utf8').trim().split(/\s+/)[0] : null;
+  const hashOk = recorded === null || recorded === actual;
+  rows.push(['sha256', recorded === null
+    ? 'no .sha256 next to it (checked, absent)'
+    : hashOk ? `${actual}  (matches the .sha256)` : `MISMATCH: file is ${actual}, recorded ${recorded}`]);
 
-  const hashOk = !existsSync(sidecar) || readFileSync(sidecar, 'utf8').trim().split(/\s+/)[0] === sha256(bundleFile);
-  let restore = { ok: true, rows: [] };
-  if (withRestore) {
-    restore = restoreCheck(bundleFile, root);
-    if (restore.ok) rows.push(['restore', 'a clone of the bundle carries the same history']);
-  }
+  // Not optional: `git bundle verify` alone passes on a file truncated to half (measured by
+  // --selftest), so the clone is the check rather than an extra one.
+  const restore = restoreCheck(bundleFile, root);
+  if (restore.ok) rows.push(['restore', 'a clone of the bundle carries the same history']);
   return { ok: verify.status === 0 && hashOk && restore.ok, rows: [...rows, ...(restore.ok ? [] : restore.rows)] };
 }
 
 /** The manifest beside the bundles: what these files are and how to get the history back. */
-function writeManifest(outDir, bundles, latest, root) {
+function writeManifest(outDir, bundles, latestFile, root) {
+  const latest = basename(latestFile);
   const lines = [
     'Loveriver repository backup',
     '',
@@ -206,11 +208,11 @@ function writeManifest(outDir, bundles, latest, root) {
     '  Git bundles of the whole repository history. A bundle is a single file git can clone',
     '  from, so a restore needs no server and no network:',
     '',
-    '    git clone "D:\\loveriver-backup\\' + basename(latest.file) + '" loveriver-restored',
+    '    git clone "' + join(outDir, latest) + '" loveriver-restored',
     '',
     '  Or check one without writing anything:',
     '',
-    '    git bundle verify "D:\\loveriver-backup\\' + basename(latest.file) + '"',
+    '    node tools/repo-backup.mjs --verify-only "' + join(outDir, latest) + '"',
     '',
     'What this is NOT',
     '  Committed history only. Uncommitted and untracked files are not in the bundle. Files',
@@ -236,7 +238,12 @@ function writeManifest(outDir, bundles, latest, root) {
     '  commit count, file count and branches as the repository (see logs for the run).',
     '',
   ];
-  writeFileSync(join(outDir, MANIFEST), lines.join('\n'));
+  // Written to a temporary name and renamed: a run interrupted mid-write would otherwise leave a
+  // truncated manifest beside intact bundles. Written only once a bundle has passed its checks,
+  // so the file never claims a verification that did not happen.
+  const manifest = join(outDir, MANIFEST);
+  writeFileSync(`${manifest}.partial`, lines.join('\n'));
+  renameSync(`${manifest}.partial`, manifest);
 }
 
 function createBundle(outDir, root, { keep = 0 } = {}) {
@@ -279,9 +286,6 @@ function createBundle(outDir, root, { keep = 0 } = {}) {
   const check = restoreCheck(finalFile, root);
   for (const [label, detail] of check.rows) console.log(`  ${label.padEnd(11)} ${detail}`);
 
-  const bundles = inventory(outDir);
-  writeManifest(outDir, bundles, bundles[bundles.length - 1], root);
-
   if (dirty.length > 0) {
     console.log('');
     console.log(`  NOT in the bundle - ${dirty.length} uncommitted or untracked path(s):`);
@@ -289,8 +293,21 @@ function createBundle(outDir, root, { keep = 0 } = {}) {
     if (dirty.length > 8) console.log(`    ... and ${dirty.length - 8} more`);
   }
 
+  if (!check.ok) {
+    // Nothing is pruned and the manifest is left exactly as it was. Pruning here would delete an
+    // older bundle - possibly the last good one - on the strength of a bundle that just proved it
+    // does not restore, which is the one way this tool could lose a backup.
+    console.error('  RESTORE CHECK FAILED: the bundle does not rebuild the same history');
+    console.error(`  kept ${basename(finalFile)} for inspection; nothing pruned, manifest unchanged`);
+    return { ok: false };
+  }
+
+  // Retention runs only after the new bundle has been proved to restore, and the bundle just
+  // written is never a candidate, whatever its name sorts like.
+  const newest = basename(finalFile);
+  const bundles = inventory(outDir);
   if (keep > 0 && bundles.length > keep) {
-    const doomed = bundles.slice(0, bundles.length - keep);
+    const doomed = bundles.filter((bundle) => bundle.name !== newest).slice(0, bundles.length - keep);
     for (const old of doomed) {
       rmSync(old.file, { force: true });
       rmSync(`${old.file}.sha256`, { force: true });
@@ -298,11 +315,9 @@ function createBundle(outDir, root, { keep = 0 } = {}) {
     }
   }
 
-  if (!check.ok) {
-    console.error('  RESTORE CHECK FAILED: the bundle does not rebuild the same history');
-    return { ok: false };
-  }
-  console.log(`  ${bundles.length} bundle(s) in ${outDir}; restore check passed`);
+  const kept = inventory(outDir);
+  writeManifest(outDir, kept, finalFile, root);
+  console.log(`  ${kept.length} bundle(s) in ${outDir}; restore check passed`);
   return { ok: true };
 }
 
@@ -369,13 +384,15 @@ if (has('--selftest')) {
 
 const root = repoRoot();
 
-if (has('--verify-only') || has('--restore-check')) {
-  const named = value('verify-only') ?? value('restore-check');
-  const outDir = value('out', DEFAULT_OUT);
+if (has('--verify-only')) {
+  // One flag, one behaviour. --restore-check was an alias for exactly this and only made the
+  // usage text look like it offered two different checks.
+  const named = value('verify-only');
+  const outDir = resolve(value('out', DEFAULT_OUT));
   const bundles = inventory(outDir);
   const target = named ?? (bundles.length > 0 ? bundles[bundles.length - 1].file : null);
   if (!target) cannotRun(`  no bundle named and none in ${outDir}`);
-  const result = verifyBundle(target, root, { withRestore: true });
+  const result = verifyBundle(target, root);
   for (const [label, detail] of result.rows) if (detail) console.log(`  ${label.padEnd(18)} ${detail}`);
   console.log(result.ok ? '  VERIFIED' : '  VERIFICATION FAILED');
   process.exit(result.ok ? 0 : 1);
