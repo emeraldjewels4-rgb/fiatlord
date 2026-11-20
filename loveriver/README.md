@@ -403,6 +403,24 @@ node tools/fund.mjs --selftest               # the deployment lookup and the --t
 node tools/fund.mjs --rpc http://127.0.0.1:8545                    # dry run; token from deployments.json
 ```
 
+### The commit gate
+
+`.githooks/pre-commit` runs the `selftest*` scripts in `package.json`, then
+`tools/record-deployment.mjs --check`, and refuses the commit if any of them fails. It runs only
+when the commit stages something under `loveriver/` or `.githooks/`, and prints `SKIPPED` with the
+paths it saw otherwise — a regtest- or threads-only commit costs half a second instead of half a
+minute, without the gate ever going quiet unexplained.
+
+`core.hooksPath` is per-clone configuration and no commit can carry it, so a clone has no gate at
+all until it is set there:
+
+```sh
+git config core.hooksPath .githooks
+```
+
+`npm install` does exactly that through the `prepare` script; a clone where that was skipped
+commits with no checks at all.
+
 ## Deploying
 
 `script/Deploy.s.sol` deploys the token with the five admins and mints the initial supply
