@@ -255,6 +255,18 @@ const burned = sum(burns);
 const net = issued - burned;
 const blocksScanned = inRange ? toBlock - fromBlock + 1 : 0;
 
+// A scan from 0 on a public chain is thousands of getLogs calls, which is how an audit gets
+// rate limited into a confident "no mints". The start block comes from deployments.json; when
+// the token was passed with --token there is no entry to read, so say what the fallback costs
+// rather than leaving the operator to discover it as a timeout.
+if (invariant && !deployment && fromBlock === 0 && blocksScanned > 0) {
+  console.error(
+    `  start block unknown: ${token} is not in deployments.json, so --invariant scans from block 0 - ` +
+      `${Math.ceil(blocksScanned / CHUNK)} getLogs call(s) on this chain. Record the deploy with ` +
+      'tools/record-deployment.mjs to start at its deploy block instead.'
+  );
+}
+
 // The supply invariant: every token that exists came from a mint and every one that stopped
 // existing went to a burn, so totalSupply() must equal issued - burned over the whole history.
 const supplyIface = new Interface(['function totalSupply() view returns (uint256)']);
