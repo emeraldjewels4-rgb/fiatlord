@@ -266,6 +266,12 @@ schtasks /Delete /TN "Loveriver ledger purge" /F
 */1 * * * * /path/to/loveriver/ops/ledger-purge.sh
 ```
 
+**Two runs at once cannot corrupt it.** Appends and purges take an exclusive `<file>.lock`, and
+the purge re-reads and renames inside that lock, so a line written by another process is either
+kept by the purge or lands after it — never dropped by the rewrite. A lock left by a killed run
+is reclaimed after 30 s instead of wedging the ledger. Reads take no lock: renames are atomic and
+an unparsable line is skipped.
+
 A successful run logs nothing and prints nothing: a line every minute saying "destroyed
 nothing" is noise, and one saying "destroyed two" would be a record of the deletions
 themselves. Only failures reach `logs/ledger-purge.log`.

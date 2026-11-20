@@ -8,6 +8,7 @@ wallets-addresses.txt
 admin-full-mark.json
 mint-ledger.jsonl
 mint-ledger.jsonl.tmp
+mint-ledger.jsonl.lock
 ops/topup.env
 logs/
 .env
