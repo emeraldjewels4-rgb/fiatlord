@@ -46,6 +46,7 @@ import { resolve } from 'node:path';
 import { readFullMark, writeFullMark } from './full-mark.mjs';
 import { gmt11, nextWindowAfter, openWindowAt, resolveNow } from './mint-window.mjs';
 import { appendLedger, deferPurge, purgeLedger, RETENTION_MS } from './mint-ledger.mjs';
+import { assessPurge, DEFAULT_TASK as DEFAULT_PURGE_TASK, DEFAULT_HEARTBEAT } from './purge-watch.mjs';
 
 const argv = process.argv.slice(2);
 const flag = (n) => argv.includes(`--${n}`);
@@ -79,6 +80,19 @@ const gateAt = withinWindow ? resolveNow(value('now', '')) : null;
 // reader to find — including a run that turns out to have nothing to mint.
 const stale = purgeLedger(ledgerFile, Date.now());
 if (stale.removed > 0) console.log(`  ledger: destroyed ${stale.removed} expired entries, kept ${stale.kept}`);
+
+// The scheduled purge is the only expiry mechanism that outlives this process, and a dead one
+// raises no error anywhere - the ledger simply stops being emptied. Checked on every run, here,
+// because this is a job that already runs and whose output is already read. A warning, not a
+// refusal: refusing to restore the floor because a scheduler died would be the worse failure.
+const purge = assessPurge({
+  taskName: value('purge-task', DEFAULT_PURGE_TASK),
+  heartbeatFile: resolve(value('purge-heartbeat', DEFAULT_HEARTBEAT)),
+  ledgerFile,
+  maxAgeMs: Number(value('purge-max-age', 15)) * 60_000,
+});
+for (const line of purge.loud) console.error(line);
+for (const line of purge.lines) console.log(line);
 
 const saved = JSON.parse(readFileSync(file, 'utf8'));
 if (!saved.mnemonic || !saved.paths?.admins?.path || !Array.isArray(saved.admins)) {

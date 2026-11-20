@@ -13,6 +13,8 @@
     "ledger": "node tools/mint-ledger.mjs --show",
     "selftest:schedule": "node tools/mint-window.mjs --selftest",
     "selftest:ledger": "node tools/mint-ledger.mjs --selftest",
+    "watch": "node tools/purge-watch.mjs --status",
+    "selftest:watch": "node tools/purge-watch.mjs --selftest",
     "audit": "node tools/mint-audit.mjs",
     "selftest:audit": "node tools/mint-audit.mjs --selftest",
     "restore": "node tools/restore-wallets.mjs",

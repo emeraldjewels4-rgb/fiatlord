@@ -31,4 +31,10 @@ if [ "$status" -ne 0 ] || [ -n "$output" ]; then
   printf '===== %s exit %s\n%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$status" "$output" >>"$LOG"
 fi
 
+# Evidence for tools/purge-watch.mjs that the scheduled purge is alive: one small file, rewritten
+# each time, never appended to. Only a successful run refreshes it.
+if [ "$status" -eq 0 ]; then
+  date -u +%Y-%m-%dT%H:%M:%SZ >"$LOG_DIR/ledger-purge.heartbeat"
+fi
+
 exit "$status"

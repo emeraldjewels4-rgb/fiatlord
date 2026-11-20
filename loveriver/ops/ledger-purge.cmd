@@ -30,6 +30,12 @@ if not "%STATUS%"=="0" (
   type "%OUT%">>"%LOG%"
 )
 del "%OUT%" >nul 2>&1
+
+rem One line, rewritten after each successful run: the evidence tools/purge-watch.mjs looks for
+rem to tell a working scheduler from a dead one. A single file rather than a log line, so the
+rem per-minute noise this wrapper avoids writing is still avoided - only its mtime matters.
+if "%STATUS%"=="0" echo %DATE% %TIME%>"%LOG_DIR%\ledger-purge.heartbeat"
+
 popd
 
 exit /b %STATUS%

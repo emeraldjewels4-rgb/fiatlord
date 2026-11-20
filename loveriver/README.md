@@ -306,6 +306,18 @@ schtasks /Delete /TN "Loveriver ledger purge" /F
 */1 * * * * /path/to/loveriver/ops/ledger-purge.sh
 ```
 
+A scheduled job that stops — a deleted task, a moved directory, a scheduler that no longer
+fires — raises no error anywhere: the ledger just stops being emptied. So both wrappers write
+`logs/ledger-purge.heartbeat` after every successful purge (one small file, rewritten, not the
+per-minute log line they deliberately avoid), and `tools/topup.mjs` checks on every run that the
+job is still registered and that the heartbeat is fresh. If either has failed it prints a loud
+`!!` warning with the number of entries sitting on disk and how old they are. The same check by
+hand, exiting `1` when the scheduler looks dead:
+
+```bash
+node tools/purge-watch.mjs --status
+```
+
 **Two runs at once cannot corrupt it.** Appends and purges take an exclusive `<file>.lock`, and
 the purge re-reads and renames inside that lock, so a line written by another process is either
 kept by the purge or lands after it — never dropped by the rewrite. A lock left by a killed run
