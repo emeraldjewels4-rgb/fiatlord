@@ -30,6 +30,8 @@ STATE="$DIR/.last-seen"     # the tip last seen here; a rewind reads as one, not
 SNAPS_DIR="$DIR/.snapshot"
 HIST="$DIR/.history"        # one line per destructive run, so a lost chain can say what removed it
 
+ORDEXE="$DIR/bin/ord.exe"   # the ord binary this folder calls for a server-down index read
+. "$DIR/chain.sh"   # ord_index_blocks + the sparse-snapshot helpers status.sh reuses
 say() { printf '\n\033[1m== %s\033[0m\n' "$*"; }
 ok() { printf '  ok   %s\n' "$*"; }
 bad() { printf '  BAD  %s\n' "$*"; problems=$((problems + 1)); }
@@ -302,19 +304,20 @@ print(json.dumps(d) if "id" in d else "")
 ' 2>/dev/null) || true
   fi
 else
-  note "server is not answering on $ORD_URL, so the index is read with ./ord (this folder's own)"
+  note "server is not answering on $ORD_URL, so the index is read from ord-data, on port"
+  note "${MAIN_RPC:-18443} — this folder's own, not the ./ord wrapper's default"
+  ord_index_blocks 120
+  IDX=$ORD_BLOCKS_DISK
+  ORD_ERR=$ORD_WHY
   ERR=$(mktemp)
-  IDX=$(timeout 120 "$DIR/ord" index info 2>"$ERR" |
-    grep -o '"blocks_indexed": [0-9]*' | grep -o '[0-9]*$') || true
-  RUNE=$(timeout 120 "$DIR/ord" runes 2>>"$ERR" | python -c '
-import json, sys
-try:
-    runes = json.load(sys.stdin).get("runes", {})
-except Exception:
-    sys.exit(0)
-print(json.dumps(runes[sys.argv[1]]) if sys.argv[1] in runes else "")
-' "$RUNE_NAME" 2>/dev/null) || true
-  ORD_ERR=$(tr -d '\r' <"$ERR" | head -n 2 | tr '\n' ' ')
+  RUNEOF=$(mktemp)
+  IDX=$(timeout 120 "$ORDEXE" --chain regtest     --bitcoin-rpc-url "http://127.0.0.1:${MAIN_RPC:-18443}"     --bitcoin-data-dir "$(winp "$DIR/data")" --data-dir "$(winp "$DIR/ord-data")"     index info 2>"$ERR" | grep -o '"blocks_indexed": [0-9]*' | grep -o '[0-9]*$') || true
+  RUNE=$( (timeout 120 "$ORDEXE" --chain regtest     --index-runes --bitcoin-rpc-url "http://127.0.0.1:${MAIN_RPC:-18443}"     --bitcoin-data-dir "$(winp "$DIR/data")" --data-dir "$(winp "$DIR/ord-data")"     runes) >"$RUNEOF") 2>"$ERR" || true
+  RUNE=$(python3 -c 'import json,sys;d=json.load(open(sys.argv[1])).get("runes",{});print(json.dumps(d[sys.argv[2]]) if sys.argv[2] in d else "")' "$RUNEOF" "$RUNE_NAME" 2>/dev/null) || true
+  ORD_ERR=$(tr -d '
+' <"$ERR" | head -n 2 | tr '
+' ' ')
+  rm -f "$RUNEOF"
   rm -f "$ERR"
 fi
 
