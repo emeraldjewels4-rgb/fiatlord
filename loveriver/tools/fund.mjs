@@ -29,6 +29,7 @@
  * wrong token by a typo in a shell history. --token still overrides it for a one-off.
  */
 import { JsonRpcProvider, Wallet, Contract, formatUnits, HDNodeWallet, Mnemonic } from 'ethers';
+import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { readFullMark, writeFullMark } from './full-mark.mjs';
@@ -54,8 +55,54 @@ const READ_CONCURRENCY = 25;
 const file = resolve(value('file', 'wallets.json'));
 const stateFile = resolve('admin-full-mark.json');
 const rpc = value('rpc', process.env.RPC_URL);
-let tokenAddress = value('token', process.env.LOVERIVER_TOKEN);
 const first = value('first', '100');
+
+// The same rule in the same place as mint-audit.mjs: a malformed --token is refused before
+// wallets.json is parsed or a provider is built, so a typo costs a second rather than a file read
+// and a connection. Empty means "look it up in deployments.json by the chain id the RPC reports".
+const givenToken = value('token', process.env.LOVERIVER_TOKEN);
+if (givenToken && !/^0x[0-9a-fA-F]{40}$/.test(givenToken)) {
+  console.error(`  --token ${givenToken} is not an address`);
+  process.exit(2);
+}
+let tokenAddress = givenToken;
+
+// Offline by construction: the lookup reads the committed file, the refusal reads argv, and the
+// command-line case is a child process - no RPC, no mnemonic, no signing key, and it works on a
+// checkout with no wallets.json at all. This is the tool that moves the admins' whole supply, so
+// the two things it must not get wrong are which token it aims at and which addresses it refuses.
+if (flag('selftest')) {
+  let failures = 0;
+  const check = (label, ok) => {
+    if (!ok) failures++;
+    console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${label}`);
+  };
+  const committed = JSON.parse(readFileSync(DEFAULT_DEPLOYMENTS, 'utf8'));
+
+  check(
+    'the token for a recorded chain is the one in deployments.json',
+    deploymentFor(31337).token === committed['31337'].token && /^0x[0-9a-fA-F]{40}$/.test(committed['31337'].token)
+  );
+  let unknown = '';
+  try { deploymentFor(424242); } catch (error) { unknown = error.message; }
+  check('an unrecorded chain is refused, named, and points at --token', unknown.includes('424242') && unknown.includes('--token'));
+
+  // The command line itself, because a refusal that only exists inside a helper is not the one an
+  // operator hits. Neither run reaches an RPC: the first stops at argv, the second at wallets.json.
+  const child = spawnSync(process.execPath, [process.argv[1], '--token', '0xnot-an-address'], { encoding: 'utf8' });
+  check(
+    '--token that is not an address exits 2 and names it',
+    child.status === 2 && /is not an address/.test(`${child.stderr}`) && child.stderr.includes('0xnot-an-address')
+  );
+  const without = spawnSync(process.execPath, [process.argv[1]], { encoding: 'utf8' });
+  check(
+    'with no --token it goes on to wallets.json instead of refusing an address',
+    without.status !== 0 && !/is not an address/.test(`${without.stderr}`)
+  );
+
+  console.log(failures === 0 ? '  fund selftest PASSED' : `  fund selftest FAILED (${failures})`);
+  process.exit(failures === 0 ? 0 : 1);
+}
 
 const saved = JSON.parse(readFileSync(file, 'utf8'));
 if (!saved.mnemonic || !saved.paths?.wallets?.path || !saved.paths?.admins?.path) {
@@ -111,10 +158,6 @@ if (!rpc) {
 // RPC reports. A fill aimed at a token that is not LVR would empty the admins into nothing,
 // which is the failure this lookup exists to make impossible by not needing to be typed.
 const provider = new JsonRpcProvider(rpc);
-if (tokenAddress && !/^0x[0-9a-fA-F]{40}$/.test(tokenAddress)) {
-  console.error(`  --token ${tokenAddress} is not an address`);
-  process.exit(2);
-}
 if (!tokenAddress) {
   let network;
   try {

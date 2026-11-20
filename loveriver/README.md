@@ -280,11 +280,12 @@ node tools/mint-audit.mjs --rpc ... --invariant    # whole life of the token, pl
 
 None of the audit, the top-up or the funder takes a token address on the command line:
 `deployments.json`, committed, holds one entry per chain id -- `token`, `deployBlock`, `owner`
--- and all three look the address up by the chain id the RPC reports. The entry is written by `node tools/record-deployment.mjs` from the
-broadcast Forge produced: chain id, token address, deploy block and the signing account are
-read from `broadcast/Deploy.s.sol/<chain>/` rather than copied out of a terminal, so a redeploy
-cannot leave the record stale. `--check` exits 1 when the file no longer matches the latest
-broadcast; `--dry-run` shows what it would write. `--token` still overrides it for a one-off,
+-- and all three look the address up by the chain id the RPC reports. The entry is written by
+`node tools/record-deployment.mjs` from the broadcast Forge produced: chain id, token address,
+deploy block and the signing account are read from `broadcast/Deploy.s.sol/<chain>/` rather than
+copied out of a terminal. A redeploy leaves the record stale until that command runs, which is
+what `--check` reports (exit 1) and what the pre-commit hook refuses to let past; `--dry-run`
+shows what it would write. `--token` still overrides it for a one-off,
 but nothing that runs on a schedule needs one. `--invariant` audits from the recorded
 `deployBlock` to the head (not block 0, which would be thousands of `getLogs` calls on a public
 chain) and requires `issued - burned` to equal `totalSupply()`, exiting 1 on a mismatch or a
@@ -398,6 +399,7 @@ node tools/gen-wallets.mjs --selftest         # checks the BIP-32 vectors
 node tools/gen-wallets.mjs                    # writes wallets.json (mode 0600)
 node tools/mint-window.mjs --selftest         # pins the mint-window boundaries
 node tools/mint-ledger.mjs --selftest         # append, purge, the ten-minute boundary
+node tools/fund.mjs --selftest               # the deployment lookup and the --token refusal, offline
 node tools/fund.mjs --rpc http://127.0.0.1:8545                    # dry run; token from deployments.json
 ```
 
