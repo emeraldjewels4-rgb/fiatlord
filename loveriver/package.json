@@ -12,7 +12,9 @@
     "clock": "node tools/mint-clock.mjs",
     "ledger": "node tools/mint-ledger.mjs --show",
     "selftest:schedule": "node tools/mint-window.mjs --selftest",
-    "selftest:ledger": "node tools/mint-ledger.mjs --selftest"
+    "selftest:ledger": "node tools/mint-ledger.mjs --selftest",
+    "restore": "node tools/restore-wallets.mjs",
+    "selftest:restore": "node tools/restore-wallets.mjs --selftest"
   },
   "dependencies": {
     "ethers": "^6.13.0"

@@ -362,7 +362,10 @@ fee basis points, `totalSupply` and all five admins correctly. No public network
 
 `wallets.json` holds **one 24-word mnemonic** and the addresses derived from it — no
 private keys. It is gitignored. Back the mnemonic up before funding anything; anyone
-holding it holds every wallet below it.
+holding it holds every wallet below it. Where that backup lives, how to restore from it,
+and the run that proved it re-derives all 1,005 addresses: `docs/BACKUP-RESTORE.md`.
+`tools/restore-wallets.mjs` rebuilds the file from a backup and refuses to trust the
+address list it is handed.
 
 The funder sends nothing unless `--broadcast` **and** `LOVERIVER_BROADCAST=yes` are both
 present, and it refuses to start without `--rpc`, `--token` and `FOUNDER_KEY`. The fill
