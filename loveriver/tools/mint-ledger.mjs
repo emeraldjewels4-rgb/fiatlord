@@ -16,10 +16,14 @@
  *   the point of the rule is that the record is gone rather than filed somewhere else.
  *
  *   Entries expire on the next run of anything that touches the ledger (topup.mjs purges at
- *   the start and again after minting; --show purges before showing). For deletion exactly
- *   ten minutes after a mint rather than at the next run, purge on a timer:
+ *   the start and again after minting; --show purges before showing). For deletion ten
+ *   minutes after a mint rather than at the next run, no scheduler is needed: the run that
+ *   writes the entries spawns ONE detached process that sleeps past the retention and purges
+ *   once (deferPurge, below). A machine that mints therefore needs no cron and no Task
+ *   Scheduler entry, and the purge costs no console window every minute.
  *
- *       node tools/mint-ledger.mjs --purge        # every minute, from cron
+ *   Where a repeating job is wanted anyway — several operators minting against one ledger —
+ *   `--purge` is idempotent and cheap enough for a one-minute timer.
  *
  * WHAT IT CANNOT DO, SAID PLAINLY
  *
@@ -47,6 +51,8 @@
  */
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { renameSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { isMain, selftest } from './selftest.mjs';
@@ -102,6 +108,28 @@ export function purgeLedger(file, now, retention = RETENTION_MS) {
 /** Append one entry. Append-only in the sense that entries are never edited in place. */
 export function appendLedger(file, entry) {
   writeFileSync(file, `${JSON.stringify(entry)}\n`, { mode: 0o600, flag: 'a' });
+}
+
+/**
+ * Destroy the ledger once its newest entry has expired, without a scheduler.
+ *
+ * A timer is the only way a file expires while nothing is running, but a once-a-minute job is
+ * the wrong timer: on Windows it is a Task Scheduler entry and a console window every minute,
+ * on a laptop it fires while the lid is shut, and in every case it is watching a file that
+ * holds entries for ten minutes after a run that minted. So the run that writes them spawns
+ * one detached process, which sleeps past the retention, purges once and exits.
+ *
+ * The margin is not decoration: waking at exactly the retention can beat the newest entry's
+ * own timestamp by a millisecond and leave that one line for the next run to find.
+ */
+export function deferPurge(file, delayMs = RETENTION_MS + 1000) {
+  const child = spawn(
+    process.execPath,
+    [fileURLToPath(import.meta.url), '--purge', '--file', file, '--after', String(delayMs)],
+    { detached: true, stdio: 'ignore', windowsHide: true }
+  );
+  child.unref();
+  return child.pid;
 }
 
 const argv = process.argv.slice(2);
@@ -177,6 +205,9 @@ if (isMain(import.meta.url) && !flag('selftest')) {
       );
     }
   } else if (flag('purge')) {
+    // --after is the sleep deferPurge's detached child is given; 0 purges immediately.
+    const after = Number(value('after', '0'));
+    if (after > 0) await new Promise((done) => setTimeout(done, after));
     const { kept, removed } = purgeLedger(file, resolveNow(value('now', '')));
     console.log(`  destroyed ${removed} expired entr${removed === 1 ? 'y' : 'ies'}, kept ${kept}`);
   } else if (flag('forget')) {

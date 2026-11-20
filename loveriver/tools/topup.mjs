@@ -45,7 +45,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { readFullMark, writeFullMark } from './full-mark.mjs';
 import { gmt11, nextWindowAfter, openWindowAt, resolveNow } from './mint-window.mjs';
-import { appendLedger, purgeLedger, RETENTION_MS } from './mint-ledger.mjs';
+import { appendLedger, deferPurge, purgeLedger, RETENTION_MS } from './mint-ledger.mjs';
 
 const argv = process.argv.slice(2);
 const flag = (n) => argv.includes(`--${n}`);
@@ -252,8 +252,11 @@ for (const phase of phases) {
   }
 }
 const held = purgeLedger(ledgerFile, Date.now());
+// One detached purge past the retention, so the entries expire on time with no cron, no Task
+// Scheduler entry and no window flashing every minute.
+const purgePid = deferPurge(ledgerFile);
 console.log(`  done: floor restored everywhere it was needed, ${phases.length} stage(s) minted`);
 console.log(
-  `  ledger: ${held.kept} entr${held.kept === 1 ? 'y' : 'ies'} kept ${RETENTION_MS / 60000} minutes then destroyed; ` +
-    'the chain keeps the permanent record'
+  `  ledger: ${held.kept} entr${held.kept === 1 ? 'y' : 'ies'} kept ${RETENTION_MS / 60000} minutes, then destroyed ` +
+    `by a scheduled purge (pid ${purgePid}); the chain keeps the permanent record`
 );

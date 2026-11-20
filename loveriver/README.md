@@ -222,7 +222,7 @@ are simply not written back, and when nothing is left the file is removed. There
 
 ```bash
 node tools/mint-ledger.mjs --show              # what is still inside the ten minutes
-node tools/mint-ledger.mjs --purge             # destroy everything expired (put on a timer)
+node tools/mint-ledger.mjs --purge             # destroy everything expired, now
 node tools/mint-ledger.mjs --forget            # destroy the whole file now
 node tools/mint-ledger.mjs --selftest          # append, purge, the ten-minute boundary
 ```
@@ -242,8 +242,22 @@ Recommendation 11 requires transaction records be kept at least five years — w
 `docs/fiat-rules.md` lists LVR as copying fiat's *supply* rules and inverting its *record* rule.
 
 Entries expire when something touches the ledger (`topup.mjs` purges at the start and after
-minting; `--show` purges before showing). For deletion exactly ten minutes after a mint rather
-than at the next run, run the purge on a timer — `*/1 * * * * node tools/mint-ledger.mjs --purge`.
+minting; `--show` purges before showing). For deletion ten minutes after a mint rather than at
+the next run, **no timer is needed**: the run that writes the entries spawns one detached
+process that sleeps just past the retention and purges once, then exits. No cron, no Task
+Scheduler entry, and no console window every minute.
+
+A repeating purge is only worth it when several places mint against one ledger, and `--purge`
+is idempotent enough for that. Task Scheduler has no working-directory setting, so pass `--file`
+with an absolute path:
+
+```bat
+schtasks /Create /TN "Loveriver ledger purge" /SC MINUTE /MO 1 /F /TR "\"C:\Program Files\nodejs\node.exe\" \"C:\path\to\loveriver\tools\mint-ledger.mjs\" --purge --file \"C:\path\to\loveriver\mint-ledger.jsonl\""
+```
+
+```sh
+*/1 * * * * node /path/to/loveriver/tools/mint-ledger.mjs --purge --file /path/to/loveriver/mint-ledger.jsonl
+```
 
 ## Documents
 
