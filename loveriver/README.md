@@ -266,7 +266,10 @@ permanent and independent of this file.
 
 `tools/mint-audit.mjs` is that read. Given a token and a date range it lists every mint from
 `Transfer(0x0 -> to, amount)` events — recipient, amount, block, timestamp, tx hash — plus the
-burns, which are the only thing that removes supply, and reports both totals:
+burns, which are the only thing that removes supply, and reports both totals. It also checks
+what the header used to only assert: each mint's transaction sender must equal the token's
+`owner()` at that block, and a mint that fails that exits 1 rather than reading as a clean
+audit.
 
 ```bash
 node tools/mint-audit.mjs --rpc ... --token ... --from 2026-11-20 --to 2026-11-20
