@@ -262,7 +262,22 @@ block and stays in every explorer and full node forever; the local line is a con
 Nor can deleting a file guarantee the bytes are unrecoverable — journals, SSD wear levelling,
 snapshots and cloud backups may hold earlier copies. So this is **not an audit trail, by
 design**: for an audit, read the chain, where the mint `Transfer` events are complete,
-permanent and independent of this file. Real fiat does the opposite with records — FATF
+permanent and independent of this file.
+
+`tools/mint-audit.mjs` is that read. Given a token and a date range it lists every mint from
+`Transfer(0x0 -> to, amount)` events — recipient, amount, block, timestamp, tx hash — plus the
+burns, which are the only thing that removes supply, and reports both totals:
+
+```bash
+node tools/mint-audit.mjs --rpc ... --token ... --from 2026-11-20 --to 2026-11-20
+node tools/mint-audit.mjs --rpc ... --token ... --json > mints.json
+```
+
+It needs no ledger, and it recovers more than the ledger ever held: a mint that happened before
+the ledger existed, or after it was deleted, is still there. What it cannot recover is which
+rule fired and which window was open — that context lived only in the ten-minute file, by
+design. A re-run against an anvil chain whose ledger had been destroyed rebuilt 8 of 8 mints by
+tx hash, recipient and amount, and the event totals equalled `totalSupply` to the wei. Real fiat does the opposite with records — FATF
 Recommendation 11 requires transaction records be kept at least five years — which is why
 `docs/fiat-rules.md` lists LVR as copying fiat's *supply* rules and inverting its *record* rule.
 
