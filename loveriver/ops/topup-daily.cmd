@@ -22,7 +22,9 @@ rem --within-window gates the FULL stage only: outside a mint window this still 
 rem half floor every day and leaves the top-up to the calendar. That is the intended split.
 setlocal EnableExtensions
 
-set "APP_DIR=%~dp0.."
+rem %%~fI (not %%~dp0..) so the paths logged are clean: "ops\..\ops\topup.env" is correct
+rem but unreadable in a log line at 07:20 in the morning.
+for %%I in ("%~dp0..") do set "APP_DIR=%%~fI"
 if defined LOVERIVER_ENV (set "ENV_FILE=%LOVERIVER_ENV%") else (set "ENV_FILE=%APP_DIR%\ops\topup.env")
 set "LOG_DIR=%APP_DIR%\logs"
 set "LOG=%LOG_DIR%\topup.log"

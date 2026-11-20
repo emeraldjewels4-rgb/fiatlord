@@ -190,20 +190,45 @@ date.
 
 ### Running it on a schedule
 
-The gate only helps if something runs it. `ops/topup-daily.sh` (cron) and
+The gate only helps if something runs it, and it has to run when nothing else is: a floor that
+stops when the laptop sleeps is not a floor. `ops/topup-daily.sh` (cron) and
 `ops/topup-daily.cmd` (Task Scheduler) both load `ops/topup.env`, run
 `tools/topup.mjs --within-window --broadcast`, append the tool's output and the exit code to
 `logs/topup.log`, and exit with that same code so a scheduler that watches for failure sees
 one.
 
-```bash
-# cron: daily at 07:17, secrets read from /etc/loveriver/topup.env
-17 7 * * * LOVERIVER_ENV=/etc/loveriver/topup.env /path/to/loveriver/ops/topup-daily.sh
+Both have an installer, because the settings that make sleep not matter are not the ones a
+one-line schedule gives you:
 
-# Windows Task Scheduler: daily at 07:20
-schtasks /Create /TN "Loveriver top-up" /TR "\"C:\path\to\loveriver\ops\topup-daily.cmd\"" /SC DAILY /ST 07:20 /F
-schtasks /Run /TN "Loveriver top-up"
+```bat
+rem Windows: daily 07:20, wakes the machine, runs a missed start on resume
+powershell -ExecutionPolicy Bypass -File ops\install-topup-task.ps1
+powershell -ExecutionPolicy Bypass -File ops\install-topup-task.ps1 -Time 07:20 -NoWake
+powershell -ExecutionPolicy Bypass -File ops\install-topup-task.ps1 -Uninstall
 ```
+
+The Windows task runs `wscript.exe ops\topup-daily.vbs` — no console window — and is
+registered with **StartWhenAvailable**, so a start missed while the machine was off or asleep
+runs as soon as it can instead of being skipped until tomorrow, and **WakeToRun**, so a closed
+lid does not miss it either. The wrapper exits with the top-up's code, so Task Scheduler's
+*Last Result* reads `0` (minted, or nothing to do), `1` (a check failed) or `2` (misconfigured)
+rather than `0` for everything.
+
+```sh
+# cron twin: 07:17 and 19:17, idempotent, secrets read from ops/topup.env
+ops/install-topup-cron.sh
+ops/install-topup-cron.sh --print
+ops/install-topup-cron.sh --remove
+```
+
+cron has no wake or catch-up setting, so the twin offers two runs a day instead: a machine off
+at 07:17 still gets the 19:17 one. Repeating is free — a run only fills what is below the mark,
+and with nothing to do it exits `0`.
+
+Verified on this machine against a local anvil chain: the registered task refilled four empty
+admins from 0 to the half floor and then to the mark, wrote eight ledger lines and exited `0`;
+a second run logged `nothing to do` and exited `0`; and a trigger set three minutes in the past
+started on its own, which is the catch-up a slept-through day relies on.
 
 `ops/topup.env` is gitignored and holds `RPC_URL`, `LOVERIVER_TOKEN` and `OWNER_KEY` (plus an
 optional `NODE` path when Task Scheduler's `PATH` cannot find node); copy
