@@ -18,7 +18,11 @@
     "audit": "node tools/mint-audit.mjs",
     "selftest:audit": "node tools/mint-audit.mjs --selftest",
     "restore": "node tools/restore-wallets.mjs",
-    "selftest:restore": "node tools/restore-wallets.mjs --selftest"
+    "selftest:restore": "node tools/restore-wallets.mjs --selftest",
+    "backup": "node tools/repo-backup.mjs",
+    "selftest:backup": "node tools/repo-backup.mjs --selftest",
+    "deploy:record": "node tools/record-deployment.mjs",
+    "selftest:deployments": "node tools/record-deployment.mjs --selftest"
   },
   "dependencies": {
     "ethers": "^6.13.0"

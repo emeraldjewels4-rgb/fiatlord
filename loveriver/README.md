@@ -278,15 +278,31 @@ node tools/mint-audit.mjs --rpc ... --json > mints.json
 node tools/mint-audit.mjs --rpc ... --invariant    # whole life of the token, plus the supply check
 ```
 
-Neither the audit nor the top-up takes a token address on the command line: `deployments.json`,
-committed, holds one entry per chain id -- `token`, `deployBlock`, `owner` -- and both tools
-look the address up by the chain id the RPC reports. `--token` still overrides it for a one-off,
+None of the audit, the top-up or the funder takes a token address on the command line:
+`deployments.json`, committed, holds one entry per chain id -- `token`, `deployBlock`, `owner`
+-- and all three look the address up by the chain id the RPC reports. The entry is written by `node tools/record-deployment.mjs` from the
+broadcast Forge produced: chain id, token address, deploy block and the signing account are
+read from `broadcast/Deploy.s.sol/<chain>/` rather than copied out of a terminal, so a redeploy
+cannot leave the record stale. `--check` exits 1 when the file no longer matches the latest
+broadcast; `--dry-run` shows what it would write. `--token` still overrides it for a one-off,
 but nothing that runs on a schedule needs one. `--invariant` audits from the recorded
 `deployBlock` to the head (not block 0, which would be thousands of `getLogs` calls on a public
 chain) and requires `issued - burned` to equal `totalSupply()`, exiting 1 on a mismatch or a
 mint whose sender is not the owner, and 2 if the supply cannot be read. It also fails when
 `owner()` has drifted from the owner recorded in the file, because a stale record is how an
 audit quietly checks the wrong thing. `ops/install-audit-task.ps1` registers it daily at 07:50.
+
+On a Linux host `ops/install-audit-cron.sh` is the twin: it installs `ops/mint-audit-daily.sh`
+at 07:50 and 19:50, after each top-up window, because cron has no catch-up setting and the
+audit only reads, so a second run costs nothing. It takes no signing key - only `RPC_URL` from
+the same `ops/topup.env` - and writes the same `logs/mint-audit.log` and `logs/audit-failed.txt`
+as the Windows wrapper, so a failure looks the same whichever host ran it.
+
+```sh
+ops/install-audit-cron.sh            # install (or update) the two lines, once
+ops/install-audit-cron.sh --print    # show what would be installed
+ops/install-audit-cron.sh --remove
+```
 
 It needs no ledger, and it recovers more than the ledger ever held: a mint that happened before
 the ledger existed, or after it was deleted, is still there. What it cannot recover is which
@@ -382,7 +398,7 @@ node tools/gen-wallets.mjs --selftest         # checks the BIP-32 vectors
 node tools/gen-wallets.mjs                    # writes wallets.json (mode 0600)
 node tools/mint-window.mjs --selftest         # pins the mint-window boundaries
 node tools/mint-ledger.mjs --selftest         # append, purge, the ten-minute boundary
-node tools/fund.mjs --rpc http://127.0.0.1:8545 --token 0x...   # dry run of the interval
+node tools/fund.mjs --rpc http://127.0.0.1:8545                    # dry run; token from deployments.json
 ```
 
 ## Deploying
@@ -434,8 +450,15 @@ and the run that proved it re-derives all 1,005 addresses: `docs/BACKUP-RESTORE.
 `tools/restore-wallets.mjs` rebuilds the file from a backup and refuses to trust the
 address list it is handed.
 
+The code needs a backup too. There is no remote, so `tools/repo-backup.mjs` writes the whole
+committed history to a timestamped git bundle in `D:\loveriver-backup` (task `Loveriver repo
+backup`, daily 08:10), verifies it, and then clones it to prove the history comes back. What
+is inside, what is deliberately not, and the restore that was actually run: the same
+`docs/BACKUP-RESTORE.md`.
+
 The funder sends nothing unless `--broadcast` **and** `LOVERIVER_BROADCAST=yes` are both
-present, and it refuses to start without `--rpc`, `--token` and `FOUNDER_KEY`. The fill
+present, and it refuses to start without `--rpc` and the mnemonic in `wallets.json`; the
+token address comes from `deployments.json`. The fill
 itself goes through `distributeRange()` in slices of 100: 1,000 wallets cost 10
 transactions instead of 1,000, and no fee is charged, so each wallet receives exactly
 the per-wallet amount.
@@ -446,7 +469,7 @@ filled, how many are empty and how many hold some but less than the target. A ru
 crashed halfway is resumed by running the same command again; nobody is funded twice,
 and the admin balance check covers only the wallets still to do. Wallets holding a
 partial amount are deliberately left alone, because `distributeRange` pays a flat amount
-and would push them over the target. Add `--rpc` and `--token` to a dry run to see the
+and would push them over the target. Add `--rpc` to a dry run to see the
 same breakdown without sending anything.
 
 Verified against a local anvil chain: 1,000 wallets filled in 10 transactions, sampled

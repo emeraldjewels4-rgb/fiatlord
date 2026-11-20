@@ -35,6 +35,12 @@ import {Loveriver} from "../src/Loveriver.sol";
  *     --rpc-url http://127.0.0.1:8545 --private-key $KEY --broadcast
  *
  * Leave off --broadcast to simulate: the script runs, nothing is sent anywhere.
+ *
+ * After a broadcast, record it: `node tools/record-deployment.mjs` reads the artifact Forge
+ * just wrote under broadcast/Deploy.s.sol/<chain>/ and puts the chain id, token address,
+ * deploy block and owner into deployments.json - the file the audit, top-up and funder read.
+ * Nothing is copied out of this output by hand, and `--check` exits 1 when the file no longer
+ * matches the latest broadcast, which is what a redeploy leaves behind if nobody records it.
  */
 /**
  * The deploy logic, as plain internal functions.
@@ -110,5 +116,11 @@ contract Deploy is Script {
         for (uint256 i = 0; i < admins.length; i++) {
             console.log("  admin      ", admins[i]);
         }
+
+        // The record is not written from here: a script editing the repository's committed file
+        // is not something to do mid-broadcast. The one command below reads the broadcast that
+        // was just written - chain id, address, block, signer - so nothing is retyped.
+        console.log("");
+        console.log("Record this deploy: node tools/record-deployment.mjs");
     }
 }

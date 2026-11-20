@@ -21,13 +21,18 @@
  * Keys are never stored: the admin signing keys are derived at run time from the same
  * mnemonic the addresses come from, which is also the only file this script needs.
  *
- *   node tools/fund.mjs --rpc ... --token ...            plan only
+ *   node tools/fund.mjs --rpc ...                        plan only
  *   ... add --broadcast and LOVERIVER_BROADCAST=yes to send
+ *
+ * The token address comes from the committed deployments.json, looked up by the chain id the
+ * RPC reports - the same file the audit and the top-up read, so a fill cannot be aimed at the
+ * wrong token by a typo in a shell history. --token still overrides it for a one-off.
  */
 import { JsonRpcProvider, Wallet, Contract, formatUnits, HDNodeWallet, Mnemonic } from 'ethers';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { readFullMark, writeFullMark } from './full-mark.mjs';
+import { DEFAULT_DEPLOYMENTS, deploymentFor } from './deployments.mjs';
 
 const argv = process.argv.slice(2);
 const flag = (n) => argv.includes(`--${n}`);
@@ -49,7 +54,7 @@ const READ_CONCURRENCY = 25;
 const file = resolve(value('file', 'wallets.json'));
 const stateFile = resolve('admin-full-mark.json');
 const rpc = value('rpc', process.env.RPC_URL);
-const tokenAddress = value('token', process.env.LOVERIVER_TOKEN);
+let tokenAddress = value('token', process.env.LOVERIVER_TOKEN);
 const first = value('first', '100');
 
 const saved = JSON.parse(readFileSync(file, 'utf8'));
@@ -97,9 +102,35 @@ if (!/^\d+$/.test(first) || Number(first) < 1 || Number(first) > wallets.length)
 const count = Number(first);
 const targets = wallets.slice(0, count);
 
-if (!rpc || !tokenAddress) {
-  console.error('  --rpc and --token are required: the pool is read, never assumed');
+if (!rpc) {
+  console.error('  --rpc is required: the pool is read, never assumed');
   process.exit(2);
+}
+
+// The address comes from deployments.json unless one was passed, looked up by the chain id the
+// RPC reports. A fill aimed at a token that is not LVR would empty the admins into nothing,
+// which is the failure this lookup exists to make impossible by not needing to be typed.
+const provider = new JsonRpcProvider(rpc);
+if (tokenAddress && !/^0x[0-9a-fA-F]{40}$/.test(tokenAddress)) {
+  console.error(`  --token ${tokenAddress} is not an address`);
+  process.exit(2);
+}
+if (!tokenAddress) {
+  let network;
+  try {
+    network = await provider.getNetwork();
+  } catch (error) {
+    console.error(`  cannot read the chain at ${rpc}: ${error.message}`);
+    process.exit(2);
+  }
+  try {
+    const deployment = deploymentFor(network.chainId, value('deployments', DEFAULT_DEPLOYMENTS));
+    tokenAddress = deployment.token;
+    console.log(`  token ${tokenAddress} from deployments.json (chain ${network.chainId})`);
+  } catch (error) {
+    console.error(`  ${error.message}`);
+    process.exit(2);
+  }
 }
 
 async function readBalances(reader, list) {
@@ -114,7 +145,6 @@ async function readBalances(reader, list) {
   return balances;
 }
 
-const provider = new JsonRpcProvider(rpc);
 const reader = new Contract(tokenAddress, ABI, provider);
 console.log(`  reading ${count} wallet balances and ${admins.length} admin balances ...`);
 const balances = await readBalances(reader, targets);

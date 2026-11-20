@@ -90,3 +90,74 @@ derivation proves the bytes still mean what they claim.
   the old addresses can be confirmed unused; it is not a backup of anything.
 - `wallets.json` is gitignored. Keep it that way; the only copy of the seed that leaves this
   machine should be the one that goes to offline media by hand.
+
+# Repository backup: the history as a git bundle
+
+The seed backup above protects the money. It does not protect the code: this repository has no
+remote, so the audit tooling and every commit behind it exist only in the project folder.
+`tools/repo-backup.mjs` writes the whole committed history to one bundle file that git can clone
+from, and then proves the clone carries that history.
+
+| | |
+|---|---|
+| Where | `D:\loveriver-backup\loveriver-repo-<YYYYMMDD-HHMMSS>.bundle` |
+| Size | about 111 KB (13 commits, 38 tracked files) |
+| Beside it | the same name `.sha256`, and `MANIFEST-repo.txt` describing the folder |
+| Schedule | task `Loveriver repo backup`, daily 08:10, wake-to-run and start-when-available |
+| Overwrites | never: every run writes a new timestamped file, pruning is explicit (`--keep N`) |
+
+The folder's ACL is the one already set for the wallet copy, so the bundle does not inherit
+access from `D:\`.
+
+**What it does not contain:** uncommitted and untracked files. Every run prints the list, because
+a bundle that quietly omits a day's work is the failure this is meant to catch. `node_modules/`
+and `wallets.json` are gitignored and so are absent by design.
+
+## Restoring
+
+```powershell
+git clone "D:\loveriver-backup\loveriver-repo-20261120-193141.bundle" loveriver-restored
+cd loveriver-restored\loveriver
+npm install                             # node_modules is gitignored; the tools import ethers
+node tools/mint-audit.mjs --selftest    # the restored tooling works, not just the files
+```
+
+Checking without writing anything:
+
+```powershell
+git bundle verify "D:\loveriver-backup\loveriver-repo-20261120-193141.bundle"
+node tools/repo-backup.mjs --verify-only            # adds the sha256 and the clone comparison
+node tools/repo-backup.mjs --restore-check <file>   # one specific bundle
+```
+
+## Why the clone, and not just `git bundle verify`
+
+Measured, not assumed: a bundle truncated to half its bytes **still passes `git bundle verify`**
+(exit 0), because verify parses the header and the ref list without reading the whole pack. The
+clone fails on it (`fatal: early EOF`). That is why every run clones its own bundle into a scratch
+directory and requires the same HEAD commit, tree hash, commit count, tracked-file count and
+branch tips, plus a clean `git fsck` there, before it reports success. `--selftest` asserts both
+halves of that: a truncated bundle passes verify, and the clone check catches it.
+
+Exit codes are the project's usual ones: `0` the bundle verifies and restores, `1` a check
+failed, `2` it could not run (no git, a bundle name already taken). A scheduled run leaves
+`logs\repo-backup-failed.txt` on a non-zero exit and deletes it on a good run, so a failure is
+visible without opening Task Scheduler.
+
+## What was actually proved on 2026-11-20
+
+| Check | Result |
+|---|---|
+| First bundle, `loveriver-repo-20261120-193047.bundle` | 111,083 bytes, sha256 `75ffb609…ef61e93` |
+| Clone of a bundle vs this repo | HEAD `6ac625d`, tree `e276000`, 13 commits, 38 files: **all match** |
+| `git fsck --strict` inside the clone | clean |
+| Branch tips advertised by the bundle | 1, all match |
+| Scheduled run through `wscript` -> `.cmd` -> tool | Last Result **0**, log ends `restore check passed` |
+| Hand restore of the newest bundle | 13 commits and the full `git log` back, 12 tools present |
+| `node tools/mint-audit.mjs --selftest` in the restored copy | `audit selftest PASSED` (exit 0) after `npm install` |
+| Same selftest before `npm install` | fails on missing `ethers` - expected, and why the doc says to install |
+| `node tools/repo-backup.mjs --selftest` | 6/6: verify catches nothing on a truncated file, the clone does, and a stale bundle is a mismatch |
+
+**This is still not an offline copy**, for the same reason as the wallet JSON: D: is another volume
+in this machine. It survives losing the project folder or a bad `git` command, not losing the
+laptop. Copy a bundle to a USB stick sometimes, or push to a remote once one exists.
