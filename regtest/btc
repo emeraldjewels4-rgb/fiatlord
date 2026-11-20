@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# bitcoin-cli against this regtest node: ./btc getblockcount
+set -euo pipefail
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec "$DIR/bin/bitcoin-cli.exe" -datadir="$DIR/data" -conf="$DIR/bitcoin.conf" "$@"

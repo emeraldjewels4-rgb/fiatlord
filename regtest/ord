@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# ord against this regtest node, runes index on: ./regtest/ord wallet balance
+# Requires `ord server` running on 127.0.0.1:8080 (see regtest/ord-server.sh).
+set -euo pipefail
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec "$DIR/bin/ord.exe" \
+  --config "$DIR/ord.yaml" \
+  --chain regtest \
+  --index-runes \
+  --bitcoin-data-dir "$DIR/data" \
+  --data-dir "$DIR/ord-data" \
+  "$@"
