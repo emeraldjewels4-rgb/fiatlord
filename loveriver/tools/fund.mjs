@@ -30,10 +30,11 @@
  */
 import { JsonRpcProvider, Wallet, Contract, formatUnits, HDNodeWallet, Mnemonic } from 'ethers';
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { readFullMark, writeFullMark } from './full-mark.mjs';
-import { DEFAULT_DEPLOYMENTS, deploymentFor } from './deployments.mjs';
+import { DEFAULT_DEPLOYMENTS, deploymentFor, readDeployments } from './deployments.mjs';
 
 const argv = process.argv.slice(2);
 const flag = (n) => argv.includes(`--${n}`);
@@ -67,9 +68,10 @@ if (givenToken && !/^0x[0-9a-fA-F]{40}$/.test(givenToken)) {
 }
 let tokenAddress = givenToken;
 
-// Offline by construction: the lookup reads the committed file, the refusal reads argv, and the
-// command-line case is a child process - no RPC, no mnemonic, no signing key, and it works on a
-// checkout with no wallets.json at all. This is the tool that moves the admins' whole supply, so
+// Offline by construction: the lookup is read from a deployments file this test writes, the
+// committed record is validated as a file, the refusal reads argv, and the command-line case is a
+// child process - no RPC, no mnemonic, no signing key, and it works on a checkout with no
+// wallets.json at all. This is the tool that moves the admins' whole supply, so
 // the two things it must not get wrong are which token it aims at and which addresses it refuses.
 if (flag('selftest')) {
   let failures = 0;
@@ -77,15 +79,39 @@ if (flag('selftest')) {
     if (!ok) failures++;
     console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${label}`);
   };
-  const committed = JSON.parse(readFileSync(DEFAULT_DEPLOYMENTS, 'utf8'));
-
-  check(
-    'the token for a recorded chain is the one in deployments.json',
-    deploymentFor(31337).token === committed['31337'].token && /^0x[0-9a-fA-F]{40}$/.test(committed['31337'].token)
+  // The lookup is proved against a file this test writes, not against the committed record. A
+  // checkout whose deployments.json lists only mainnet is a legitimate checkout, and asserting on
+  // its chain 31337 entry made this selftest throw there - a gate that fails for a reason unrelated
+  // to the change is a gate people learn to bypass.
+  const TOKEN = '0x5FC8d32690cc91D4c39d9d3abcBD16989F875707';
+  const scratch = mkdtempSync(join(tmpdir(), 'loveriver-fund-'));
+  const scratchFile = join(scratch, 'deployments.json');
+  writeFileSync(
+    scratchFile,
+    JSON.stringify({
+      '31337': { name: 'selftest', token: TOKEN, deployBlock: 8 },
+      _readme: ['the same shape as the committed file, so its note is skipped the same way'],
+    })
   );
-  let unknown = '';
-  try { deploymentFor(424242); } catch (error) { unknown = error.message; }
-  check('an unrecorded chain is refused, named, and points at --token', unknown.includes('424242') && unknown.includes('--token'));
+  try {
+    const recorded = deploymentFor(31337, scratchFile);
+    check(
+      'the token for a recorded chain is the one in the deployments file',
+      recorded.token === TOKEN && recorded.deployBlock === 8 && recorded.chainId === 31337
+    );
+
+    let unknown = '';
+    try { deploymentFor(424242, scratchFile); } catch (error) { unknown = error.message; }
+    check('an unrecorded chain is refused, named, and points at --token', unknown.includes('424242') && unknown.includes('--token'));
+
+    // The committed file still gets one case of its own, deliberately about the file rather than
+    // about a chain in it: it must parse and validate whatever chains that checkout records.
+    let committedProblem = '';
+    try { readDeployments(DEFAULT_DEPLOYMENTS); } catch (error) { committedProblem = error.message; }
+    check('the committed deployments.json parses and every entry in it is valid', committedProblem === '');
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
 
   // The command line itself, because a refusal that only exists inside a helper is not the one an
   // operator hits. Neither run reaches an RPC: the first stops at argv, the second at wallets.json.
