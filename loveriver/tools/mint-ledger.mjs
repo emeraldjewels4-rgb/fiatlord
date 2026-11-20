@@ -68,6 +68,7 @@
 import {
   closeSync,
   existsSync,
+  mkdirSync,
   openSync,
   readFileSync,
   renameSync,
@@ -254,7 +255,12 @@ const value = (n, d) => {
 
 if (flag('selftest') && isMain(import.meta.url)) {
   const test = selftest('ledger selftest');
-  const file = join(tmpdir(), `lvr-ledger-${process.pid}.jsonl`);
+  // One directory per run, so a crash leaves a single removable folder instead of a scatter of
+  // pid-named ledgers and locks in %TEMP% that nobody ever finds again.
+  const scratch = join(tmpdir(), `lvr-ledger-selftest-${process.pid}`);
+  rmSync(scratch, { recursive: true, force: true });
+  mkdirSync(scratch, { recursive: true });
+  const file = join(scratch, 'ledger.jsonl');
   const now = Date.parse('2026-11-20T12:00:00.000Z');
   const entry = (agoMs, admin = '0x1') => ({
     at: new Date(now - agoMs).toISOString(),
@@ -278,7 +284,7 @@ if (flag('selftest') && isMain(import.meta.url)) {
     appendLedger(file, entry(1_000, '0x3'));
     test.check('a torn line is dropped, the good one kept', readLedger(file).map((e) => e.admin).join(','), '0x3');
 
-    const fresh = join(tmpdir(), `lvr-ledger-boundary-${process.pid}.jsonl`);
+    const fresh = join(scratch, 'boundary.jsonl');
     writeFileSync(fresh, '');
     appendLedger(fresh, entry(RETENTION_MS));
     appendLedger(fresh, entry(RETENTION_MS - 1, '0x4'));
@@ -303,7 +309,7 @@ if (flag('selftest') && isMain(import.meta.url)) {
 
   // A killed run leaves its lock behind. An append must reclaim it rather than block for the
   // full wait, or one crash wedges the ledger permanently.
-  const staleFile = join(tmpdir(), `lvr-ledger-stale-${process.pid}.jsonl`);
+  const staleFile = join(scratch, 'stale.jsonl');
   rmSync(staleFile, { force: true });
   appendLedger(staleFile, entry(0, 'stale-1'));
   writeFileSync(`${staleFile}.lock`, '99999');
@@ -318,7 +324,7 @@ if (flag('selftest') && isMain(import.meta.url)) {
   // The deterministic race: hold the purge inside its rewrite window and append during the hold.
   // With the lock that append waits and lands after the rename; without it the rename replaces the
   // file with a copy that never contained the line, and nothing reports it.
-  const heldFile = join(tmpdir(), `lvr-ledger-held-${process.pid}.jsonl`);
+  const heldFile = join(scratch, 'held.jsonl');
   rmSync(heldFile, { force: true });
   appendLedger(heldFile, {
     at: new Date(Date.now() - RETENTION_MS - 60_000).toISOString(),
@@ -369,8 +375,8 @@ if (flag('selftest') && isMain(import.meta.url)) {
   // a file that contains expired lines (so every purge really does rewrite). Every appended line
   // must survive exactly once. Without the lock the rewrite drops whichever line landed between
   // its read and its rename, and nothing anywhere reports it.
-  const raceFile = join(tmpdir(), `lvr-ledger-race-${process.pid}.jsonl`);
-  const workerFile = join(tmpdir(), `lvr-ledger-worker-${process.pid}.mjs`);
+  const raceFile = join(scratch, 'race.jsonl');
+  const workerFile = join(scratch, 'worker.mjs');
   rmSync(raceFile, { force: true });
   // Seeded against the REAL clock, not the fixed `now` the deterministic checks use: purging
   // with Date.now() would otherwise keep them, because that fixed instant is hours in the future
@@ -447,6 +453,7 @@ if (flag('selftest') && isMain(import.meta.url)) {
   rmSync(raceFile, { force: true });
   rmSync(`${raceFile}.lock`, { force: true });
   rmSync(workerFile, { force: true });
+  rmSync(scratch, { recursive: true, force: true });
 
   test.finish();
 }
