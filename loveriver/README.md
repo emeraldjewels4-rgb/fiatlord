@@ -405,11 +405,14 @@ node tools/fund.mjs --rpc http://127.0.0.1:8545                    # dry run; to
 
 ### The commit gate
 
-`.githooks/pre-commit` runs the `selftest*` scripts in `package.json`, then
-`tools/record-deployment.mjs --check`, and refuses the commit if any of them fails. It runs only
-when the commit stages something under `loveriver/` or `.githooks/`, and prints `SKIPPED` with the
-paths it saw otherwise — a regtest- or threads-only commit costs half a second instead of half a
-minute, without the gate ever going quiet unexplained.
+`.githooks/pre-commit` refuses a commit in two cases: `tools/record-deployment.mjs --check` finds
+`deployments.json` disagreeing with the newest broadcast, or any `selftest*` script in `package.json`
+fails. The record check runs on every commit, scoped or not — a redeploy writes only to
+`broadcast/`, which git ignores, so the commit that follows one stages nothing under `loveriver/`
+and would otherwise never look — and skips cleanly on a machine with no broadcast to be stale
+against. The selftests run only when the commit stages something under `loveriver/` or `.githooks/`,
+and print `SKIPPED` with the paths they saw otherwise: a regtest- or threads-only commit costs half
+a second instead of half a minute, without the gate ever going quiet unexplained.
 
 `core.hooksPath` is per-clone configuration and no commit can carry it, so a clone has no gate at
 all until it is set there:

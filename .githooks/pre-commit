@@ -12,10 +12,12 @@
 # gated the moment its script exists. All nine currently take about 25 seconds together and
 # reach no network.
 #
-# Then one more gate with no selftest of its own: deployments.json must match the newest deploy
-# broadcast. A redeploy nobody ran `npm run deploy:record` after leaves the audit, the top-up and
-# the funder talking confidently to the previous token, which no test would notice - the record is
-# right about a token that is no longer the one deployed.
+# One more gate has no selftest of its own and runs on every commit, scoped or not:
+# deployments.json must match the newest deploy broadcast. A redeploy nobody ran `npm run
+# deploy:record` after leaves the audit, the top-up and the funder talking confidently to the
+# previous token, which no test would notice - the record is right about a token that is no longer
+# the one deployed. It cannot live behind the scope test: a redeploy writes only to broadcast/,
+# which git ignores, so the commit that follows one stages nothing under loveriver/.
 #
 # If the gate cannot run it refuses instead of passing: node_modules missing means the tests
 # cannot import ethers, and a silent pass would be worse than a blocked commit. git commit
@@ -31,6 +33,36 @@ set -u
 root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 1
 app="$root/loveriver"
 
+if [ ! -f "$app/package.json" ]; then
+  echo "pre-commit: no loveriver/package.json under $root; nothing to gate" >&2
+  exit 0
+fi
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "pre-commit: REFUSED - node is not on PATH, so neither the record check nor the selftests can run." >&2
+  exit 1
+fi
+
+# The record check, before anything is scoped out. --check exits 1 when deployments.json disagrees
+# with the newest broadcast and 0 when it agrees; with no broadcast at all it exits 0 and says it
+# skipped, because a machine that never deployed has nothing to be stale against. It needs no
+# node_modules (ethers is imported only once an artifact is actually read), costs about a fifth of
+# a second, and any other non-zero means it could not run - refused, not passed, because a gate
+# that cannot see must not claim the record is current.
+echo "pre-commit: deployments.json against the newest broadcast" >&2
+record=$(cd "$app" && node tools/record-deployment.mjs --check 2>&1)
+record_status=$?
+if [ "$record_status" -ne 0 ]; then
+  echo "  FAIL  deployments.json (exit $record_status)" >&2
+  printf '%s\n' "$record" | tail -12 | sed 's/^/        /' >&2
+  echo "" >&2
+  echo "pre-commit: REFUSED - the record is stale, or the check could not run; the commit was not created." >&2
+  echo "            cd loveriver && npm run deploy:record -- --chain <id>   then commit again" >&2
+  echo "            (the id is in the FAIL output above; with one chain it is the only one listed)" >&2
+  exit 1
+fi
+printf '  ok    %s\n' "$(printf '%s' "$record" | tail -1 | sed 's/^ *//')" >&2
+
 # Scope. The selftests exercise loveriver/tools and nothing else: a commit that stages only
 # regtest/, threads/ or a top-level note cannot break them, and spending 25 seconds on a gate that
 # cannot fail is how people learn to reach for --no-verify. The gate skips those commits and says
@@ -40,21 +72,11 @@ staged=$(git diff --cached --name-only 2>/dev/null || true)
 if ! printf '%s\n' "$staged" | grep -qE '^(loveriver/|\.githooks/)'; then
   echo "pre-commit: SKIPPED - no staged path under loveriver/ or .githooks/, so the tool selftests were not run." >&2
   if [ -z "$staged" ]; then
-    echo "            nothing is staged at all (an empty or amended commit); the gate will run for the next commit that touches those paths." >&2
+    echo "            nothing is staged at all (an empty or amended commit); the selftests will run for the next commit that touches those paths." >&2
   else
     echo "            staged, outside those paths: $(printf '%s' "$staged" | head -3 | tr '\n' ' ')" >&2
   fi
   exit 0
-fi
-
-if [ ! -f "$app/package.json" ]; then
-  echo "pre-commit: no loveriver/package.json under $root; nothing to gate" >&2
-  exit 0
-fi
-
-if ! command -v node >/dev/null 2>&1; then
-  echo "pre-commit: REFUSED - node is not on PATH, so the selftests cannot run." >&2
-  exit 1
 fi
 
 if [ ! -d "$app/node_modules" ]; then
@@ -109,23 +131,4 @@ if [ "$failed" -ne 0 ]; then
 fi
 
 echo "  all $total passed" >&2
-
-# The record check. --check exits 1 when deployments.json disagrees with the newest broadcast and 0
-# when they agree; with no broadcast at all it exits 0 and says it skipped, because a fresh clone
-# has nothing to be stale against and a commit there must not be blocked. Any other non-zero is a
-# check that could not run (an unreadable or reverted artifact), and that is refused rather than
-# passed: a gate that cannot see must not claim the record is current.
-echo "pre-commit: deployments.json against the newest broadcast" >&2
-record=$(cd "$app" && node tools/record-deployment.mjs --check 2>&1)
-record_status=$?
-if [ "$record_status" -ne 0 ]; then
-  echo "  FAIL  deployments.json (exit $record_status)" >&2
-  printf '%s\n' "$record" | tail -12 | sed 's/^/        /' >&2
-  echo "" >&2
-  echo "pre-commit: REFUSED - the record is stale, or the check could not run; the commit was not created." >&2
-  echo "            cd loveriver && npm run deploy:record -- --chain <id>   then commit again" >&2
-  echo "            (the id is in the FAIL output above; with one chain it is the only one listed)" >&2
-  exit 1
-fi
-printf '  ok    %s\n' "$(printf '%s' "$record" | tail -1 | sed 's/^ *//')" >&2
 exit 0

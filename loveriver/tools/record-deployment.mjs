@@ -29,7 +29,6 @@
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { getAddress } from 'ethers';
 import { DEFAULT_DEPLOYMENTS } from './deployments.mjs';
 
 const argv = process.argv.slice(2);
@@ -59,7 +58,11 @@ export function findArtifact(root = BROADCAST, chain = null) {
 }
 
 /** The four facts, or a throw saying which one the artifact cannot answer. */
-export function readArtifact(path) {
+export async function readArtifact(path) {
+  // ethers is imported here rather than at the top so --check can answer "no broadcast to compare"
+  // without node_modules: the hook runs it on every commit, and on a machine that has never run
+  // npm install there is nothing to checksum and nothing to install first.
+  const { getAddress } = await import('ethers');
   let artifact;
   try {
     artifact = JSON.parse(readFileSync(path, 'utf8'));
@@ -140,7 +143,7 @@ if (has('--selftest')) {
     return root;
   };
   try {
-    const parsed = readArtifact(writeFile('run-latest.json', artifact));
+    const parsed = await readArtifact(writeFile('run-latest.json', artifact));
     check(
       'chain id, token, block and signer are read from the artifact',
       parsed.chainId === 31337 && parsed.deployBlock === 8 && /^0x[a-fA-F0-9]{40}$/.test(parsed.owner) && parsed.token !== parsed.token.toLowerCase()
@@ -167,11 +170,11 @@ if (has('--selftest')) {
     check('a new chain gets an entry', recordDeployment(parsed, fresh).changed &&
       JSON.parse(readFileSync(fresh, 'utf8'))['31337'].token === parsed.token);
 
-    const refused = (label, run) => {
-      try { run(); return check(label, false); } catch { return check(label, true); }
+    const refused = async (label, run) => {
+      try { await run(); return check(label, false); } catch { return check(label, true); }
     };
-    refused('a reverted deploy is refused', () => readArtifact(writeFile('reverted.json', { ...artifact, receipts: [{ transactionHash: '0xaaa', blockNumber: '0x8', status: '0x0' }] })));
-    refused('an empty artifact is refused', () => readArtifact(writeFile('empty.json', '')));
+    await refused('a reverted deploy is refused', () => readArtifact(writeFile('reverted.json', { ...artifact, receipts: [{ transactionHash: '0xaaa', blockNumber: '0x8', status: '0x0' }] })));
+    await refused('an empty artifact is refused', () => readArtifact(writeFile('empty.json', '')));
 
     const two = record('two', [1, 31337]);
     const ambiguous = findArtifact(two, null);
@@ -214,7 +217,7 @@ if (!found.path) {
 
 let deployment;
 try {
-  deployment = readArtifact(found.path);
+  deployment = await readArtifact(found.path);
 } catch (error) {
   stop(error.message);
 }
