@@ -1,4 +1,11 @@
 {
+  "31337": {
+    "name": "anvil (local, deterministic)",
+    "token": "0x5FC8d32690cc91D4c39d9d3abcBD16989F875707",
+    "deployBlock": 8,
+    "owner": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+    "note": "script/Deploy.s.sol with the default anvil key; the same address on every fresh chain"
+  },
   "_readme": [
     "Where the LVR token lives, one entry per chain id. The audit and top-up tools read this",
     "instead of taking an address on the command line, so the address exists in one place.",
@@ -7,12 +14,5 @@
     "it was deployed; both tools compare it with owner() on chain and fail if it has drifted.",
     "Keys must be decimal chain ids. Anything not matching /^\\d+$/ is ignored, which is how",
     "this note survives."
-  ],
-  "31337": {
-    "name": "anvil (local, deterministic)",
-    "token": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
-    "deployBlock": 1,
-    "owner": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
-    "note": "script/Deploy.s.sol with the default anvil key; the same address on every fresh chain"
-  }
+  ]
 }
