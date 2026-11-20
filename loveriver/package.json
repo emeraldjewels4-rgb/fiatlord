@@ -1,0 +1,20 @@
+{
+  "name": "loveriver",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Loveriver (LVR): inflationary token with in-token fees and a rotatable fee wallet, plus wallet tooling",
+  "scripts": {
+    "selftest": "node tools/gen-wallets.mjs --selftest",
+    "wallets": "node tools/gen-wallets.mjs",
+    "fund": "node tools/fund.mjs",
+    "topup": "node tools/topup.mjs",
+    "clock": "node tools/mint-clock.mjs",
+    "ledger": "node tools/mint-ledger.mjs --show",
+    "selftest:schedule": "node tools/mint-window.mjs --selftest",
+    "selftest:ledger": "node tools/mint-ledger.mjs --selftest"
+  },
+  "dependencies": {
+    "ethers": "^6.13.0"
+  }
+}
