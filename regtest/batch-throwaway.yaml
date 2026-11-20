@@ -1,0 +1,17 @@
+mode: separate-outputs
+postage: 10000
+# ord 0.29 refuses a rune-only batch: an etch must ride with at least one inscription.
+inscriptions:
+  - file: throwaway.txt
+
+etching:
+  rune: THROW•AWAY•TEST
+  divisibility: 0
+  premine: 1000
+  supply: 1000000          # premine + terms.cap * terms.amount
+  symbol: ¤
+  turbo: true
+
+  terms:
+    amount: 1000
+    cap: 999               # 999 * 1000 + 1000 = 1,000,000
