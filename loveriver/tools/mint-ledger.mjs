@@ -198,6 +198,11 @@ function purgeUnlocked(file, now, retention) {
   // the old ledger or the purged one, never a half-written mix of the two.
   const temporary = `${file}.tmp`;
   writeFileSync(temporary, `${kept.map((entry) => JSON.stringify(entry)).join('\n')}\n`, { mode: 0o600 });
+  // A test seam, never set in normal operation: hold the file between writing the replacement and
+  // renaming it over the ledger, so the selftest can put a concurrent append inside the window by
+  // construction instead of hoping the scheduler produces one.
+  const holdMs = Number(process.env.LOVERIVER_PURGE_HOLD_MS ?? 0);
+  if (holdMs > 0) pause(holdMs);
   renameSync(temporary, file);
   return { kept: kept.length, removed: entries.length - kept.length };
 }
@@ -310,7 +315,57 @@ if (flag('selftest') && isMain(import.meta.url)) {
   test.check('and reclaimed at once, not after the timeout', Date.now() - started < 2000, true);
   test.check('the lock is gone once the work is done', existsSync(`${staleFile}.lock`), false);
 
-  // The race the lock exists for, with real processes: two of them append while this one purges
+  // The deterministic race: hold the purge inside its rewrite window and append during the hold.
+  // With the lock that append waits and lands after the rename; without it the rename replaces the
+  // file with a copy that never contained the line, and nothing reports it.
+  const heldFile = join(tmpdir(), `lvr-ledger-held-${process.pid}.jsonl`);
+  rmSync(heldFile, { force: true });
+  appendLedger(heldFile, {
+    at: new Date(Date.now() - RETENTION_MS - 60_000).toISOString(),
+    rule: 'floor',
+    window: 'none',
+    admin: 'held-old',
+    amount: '1.0',
+    txHash: '0xold',
+  });
+  appendLedger(heldFile, {
+    at: new Date().toISOString(),
+    rule: 'full',
+    window: 'window 1 of 2026',
+    admin: 'held-keep',
+    amount: '2.0',
+    txHash: '0xkeep',
+  });
+  const purger = spawn(process.execPath, [fileURLToPath(import.meta.url), '--purge', '--file', heldFile], {
+    stdio: 'ignore',
+    env: { ...process.env, LOVERIVER_PURGE_HOLD_MS: '800' },
+  });
+  const purgerDone = new Promise((done) => purger.on('exit', done));
+  // Wait for the temporary file to appear: that is the window, by construction.
+  let windowOpen = false;
+  for (let attempt = 0; attempt < 600 && !windowOpen; attempt++) {
+    windowOpen = existsSync(`${heldFile}.tmp`);
+    if (!windowOpen) await new Promise((done) => setTimeout(done, 5));
+  }
+  appendLedger(heldFile, {
+    at: new Date().toISOString(),
+    rule: 'full',
+    window: 'window 1 of 2026',
+    admin: 'held-during',
+    amount: '3.0',
+    txHash: '0xduring',
+  });
+  await purgerDone;
+  const heldAdmins = readLedger(heldFile).map((row) => row.admin);
+  test.check('the purge window really was open', windowOpen, true);
+  test.check('a write during the purge rewrite survives', heldAdmins.includes('held-during'), true);
+  test.check('and the entry the purge kept is still there', heldAdmins.includes('held-keep'), true);
+  test.check('the expired entry it targeted is gone', heldAdmins.includes('held-old'), false);
+  rmSync(heldFile, { force: true });
+  rmSync(`${heldFile}.lock`, { force: true });
+  rmSync(`${heldFile}.tmp`, { force: true });
+
+  // The same race under load: two real processes append while this one purges
   // a file that contains expired lines (so every purge really does rewrite). Every appended line
   // must survive exactly once. Without the lock the rewrite drops whichever line landed between
   // its read and its rename, and nothing anywhere reports it.
@@ -339,11 +394,12 @@ if (flag('selftest') && isMain(import.meta.url)) {
       'for (let i = 0; i < Number(count); i++) {',
       '  appendLedger(file, { at: new Date().toISOString(), rule: "floor", window: "none",',
       '    admin: tag + "-" + i, amount: "1.0", txHash: "0x" + tag + i });',
+      '  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1);',
       '}',
     ].join('\n')
   );
   const writers = ['a', 'b'].map((tag) =>
-    spawn(process.execPath, [workerFile, raceFile, '15', tag], { stdio: 'ignore' })
+    spawn(process.execPath, [workerFile, raceFile, '60', tag], { stdio: 'ignore' })
   );
   // Attached before anything is awaited, so a writer that finishes early cannot be missed.
   const exited = writers.map((writer) => new Promise((done) => writer.on('exit', done)));
@@ -354,11 +410,24 @@ if (flag('selftest') && isMain(import.meta.url)) {
   //   - it does not hammer the lock, or the writers sit in their five-second wait and the test
   //     measures starvation instead of the rewrite race.
   let purges = 0;
+  let rewrites = 0;
   for (let attempt = 0; attempt < 400; attempt++) {
-    purgeLedger(raceFile, Date.now());
+    // One expired line per pass, so every purge really rewrites the file. Without this the first
+    // purge clears the seeded lines, every later purge takes the "nothing removed" early return,
+    // and the test never opens the window it exists to hit — it passes with the lock removed.
+    appendLedger(raceFile, {
+      at: expiredAt,
+      rule: 'floor',
+      window: 'none',
+      admin: `churn-${attempt}`,
+      amount: '0.0',
+      txHash: '0xchurn',
+    });
+    const outcome = purgeLedger(raceFile, Date.now());
+    if (outcome.removed > 0) rewrites++;
     purges++;
     if (writers.every((writer) => writer.exitCode !== null)) break;
-    await new Promise((done) => setTimeout(done, 5));
+    await new Promise((done) => setTimeout(done, 2));
   }
   const stillRunning = writers.some((writer) => writer.exitCode === null);
   if (stillRunning) writers.forEach((writer) => writer.kill());
@@ -371,8 +440,9 @@ if (flag('selftest') && isMain(import.meta.url)) {
   const survivors = readLedger(raceFile);
   const admins = survivors.map((row) => row.admin);
   test.check('both writers finished while purges were running', purges > 1 && !stillRunning, true);
-  test.check('every concurrent append survived the purge rewrite', survivors.length, 30);
-  test.check('and none were duplicated', new Set(admins).size, 30);
+  test.check('the purges really rewrote the file, not just early-returned', rewrites > 10, true);
+  test.check('every concurrent append survived the purge rewrite', survivors.length, 120);
+  test.check('and none were duplicated', new Set(admins).size, 120);
   test.check('the seeded expired lines are gone', admins.filter((a) => String(a).startsWith('old-')).length, 0);
   rmSync(raceFile, { force: true });
   rmSync(`${raceFile}.lock`, { force: true });
