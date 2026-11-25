@@ -5,7 +5,10 @@
     python build/make_bytecode_panel.py --check   # report, write nothing
 
 The panel shows the runtime bytecode solc produced for each contract in the
-artifact files, with every demo address build/deployments.json records for it.
+artifact files, with every demo address the deployment records hold for it:
+build/deployments.json, plus the records that keep their own file (see
+ADDRESS_RECORDS). A contract with no address says why in NO_ADDRESS, so a card
+without a link reads as "not deployed" rather than as a missing record.
 The hex is a snapshot of this checkout: nothing is read from a chain at page
 load, so the panel answers with the same bytes whatever the host's network is
 doing. Each entry carries its size and sha256, which is what makes "is the
@@ -51,6 +54,36 @@ def contracts():
     return found
 
 
+# Records that keep their own address file. A contract deployed before the
+# shared deployment record existed still has a deployment, so "not in
+# build/deployments.json" must not be reported as "not deployed".
+ADDRESS_RECORDS = (
+    {"contract": "MinedCurrency", "path": "build/mined.json", "section": "deployments"},
+)
+
+# Why a compiled contract has no address to link. Only the reasons written here
+# are printed: anything else keeps the plain "no deployment recorded" pill
+# rather than an explanation invented at build time.
+NO_ADDRESS = {
+    "AudReserve": (
+        "Compiled and exercised by test_aud_local.py on a local EVM, but never on "
+        "a public chain: aud_token.py deploy writes an aud_reserve entry to "
+        "build/deployments.json and none has been recorded."
+    ),
+    "Create2Deployer": (
+        "A deploy helper for fixed CREATE2 addresses, not a deployed contract: "
+        "multichain.py sends through the canonical deterministic-deployment proxy "
+        "at 0x4e59b44847b379578588920cA78FbF26c0B4956C instead."
+    ),
+    "QuantumDeathTangle": (
+        "Compiled and filled only on an in-process eth-tester EVM "
+        "(lovewebconnection, chain 131277322940537) that resets on every run, so "
+        "the address build/qdt/deployment.json recorded cannot be reached or "
+        "linked."
+    ),
+}
+
+
 def addresses():
     """Contract name -> [(chain, address)], from the deployment record."""
     by_contract = {}
@@ -70,6 +103,16 @@ def addresses():
         # the chain is its first segment, which is also what the explorer map uses.
         chain = key.split("_")[0]
         by_contract.setdefault(name, []).append({"chain": chain, "address": address})
+    for spec in ADDRESS_RECORDS:
+        path = os.path.join(ROOT, spec["path"])
+        if not os.path.isfile(path):
+            continue
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+        for chain, entry in (data.get(spec["section"]) or {}).items():
+            address = (entry or {}).get("address") if isinstance(entry, dict) else None
+            if address and not any(a["address"] == address for a in by_contract.get(spec["contract"], [])):
+                by_contract.setdefault(spec["contract"], []).append({"chain": chain, "address": address})
     return by_contract
 
 
@@ -79,9 +122,11 @@ def panel():
     for name in sorted(contracts()):
         hexdata = contracts()[name]
         raw = bytes.fromhex(hexdata[2:])
+        chains = addr.get(name, [])
         rows.append({
             "name": name,
-            "chains": addr.get(name, []),
+            "chains": chains,
+            "note": "" if chains else NO_ADDRESS.get(name, ""),
             "hex": hexdata,
             "bytes": len(raw),
             "sha256": hashlib.sha256(raw).hexdigest(),
@@ -92,6 +137,12 @@ def panel():
     }
 
 
+# The <head> line is written the way cPanel's Fileman keeps it. Saving a file
+# through the API joins `<head>` with the `<meta charset>` that follows it and
+# leaves a blank line where that tag was; a template with the two on separate
+# lines therefore never matches what the host stores, and every status and drift
+# check reported this page as changed. Emitting the stored form makes the
+# deployed copy byte-identical to the generated one. Do not reflow these lines.
 TEMPLATE = r"""<?php
 /**
  * bytecode.php - the bytecode panel.
@@ -148,8 +199,8 @@ header('Cache-Control: no-cache');
 ?>
 <!DOCTYPE html>
 <html lang="en">
-<head>
-<meta charset="utf-8">
+<head><meta charset="utf-8">
+
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Bytecode panel - FiatLord</title>
 <meta name="description" content="The runtime bytecode of every deployed FiatLord contract, with its size, address and sha256.">
@@ -307,6 +358,7 @@ header('Cache-Control: no-cache');
     background: rgba(2, 6, 23, .6);
   }
   .pill.hot { color: var(--hot); border-color: rgba(249, 115, 22, .4); }
+  .why { margin: -2px 0 12px; color: var(--dim); font-size: 13px; max-width: 72ch; }
   .addr { color: var(--cool); text-decoration: none; border-bottom: 1px dotted rgba(34, 211, 238, .4); }
   .addr:hover { color: #a5f3fc; }
   details { border-top: 1px solid rgba(30, 41, 59, .9); padding-top: 12px; }
@@ -401,9 +453,12 @@ header('Cache-Control: no-cache');
         </span>
 <?php endforeach; ?>
 <?php if (!$contract['chains']): ?>
-        <span class="pill">no deployment recorded</span>
+        <span class="pill"><?= $contract['note'] !== '' ? 'no chain address' : 'no deployment recorded' ?></span>
 <?php endif; ?>
       </div>
+<?php if ($contract['note'] !== ''): ?>
+      <p class="why"><?= h($contract['note']) ?></p>
+<?php endif; ?>
       <details>
         <summary>Runtime bytecode</summary>
         <pre class="hex" id="hex-<?= h($contract['name']) ?>"><?= h($contract['hex']) ?></pre>
