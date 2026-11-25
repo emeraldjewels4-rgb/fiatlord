@@ -1,6 +1,17 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.24;
 
+// The one address the shipped deploy script grants authority to: the owner, all five
+// administrator slots and the fee wallet.
+//
+// File-level so the deploy script and the tests name the same literal the token does, without
+// an instance to read it from. It is in the token's own source so the address that will control
+// a deployed Loveriver is readable on chain (OPERATOR()) and cannot be swapped by an
+// environment variable at deploy time. The roles stay reassignable afterwards:
+// transferOwnership() and setAdmin() are untouched, because one key with no way out is a worse
+// failure than one key.
+address constant LVR_OPERATOR = 0x4EEA541aF2487404684eb8d95B74e281762b61a5;
+
 /**
  * Loveriver (LVR)
  *
@@ -37,6 +48,10 @@ contract Loveriver {
 
     /// @notice Fees are a fraction of the amount moved, in basis points (1% = 100).
     uint256 public constant MAX_FEE_BPS = 500;
+
+    /// @notice The operator address, readable on chain. Same value as the file-level constant
+    ///         the deploy script imports; see LVR_OPERATOR for why it is fixed here.
+    address public constant OPERATOR = LVR_OPERATOR;
 
     address public owner;
     uint256 public totalSupply;

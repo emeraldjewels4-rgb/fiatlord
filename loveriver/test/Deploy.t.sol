@@ -3,7 +3,7 @@ pragma solidity 0.8.24;
 
 import {Test} from "forge-std/Test.sol";
 import {Deploy, Deployer} from "../script/Deploy.s.sol";
-import {Loveriver} from "../src/Loveriver.sol";
+import {Loveriver, LVR_OPERATOR} from "../src/Loveriver.sol";
 
 /**
  * Tests the deploy script.
@@ -142,30 +142,54 @@ contract DeployTest is Test {
         assertEq(token.balanceOf(RECIPIENT), 6.495 ether, "the recipient gets the amount minus the fee");
     }
 
-    /// The one test that goes through run(): it must read the environment and pass those
-    /// values to deploy(), rather than hard-coding any of them.
-    function test_RunReadsTheEnvironment() public {
-        vm.setEnv("OWNER", vm.toString(address(this)));
-        vm.setEnv("ADMIN_1", vm.toString(ADMIN_1));
-        vm.setEnv("ADMIN_2", vm.toString(ADMIN_2));
-        vm.setEnv("ADMIN_3", vm.toString(ADMIN_3));
-        vm.setEnv("ADMIN_4", vm.toString(ADMIN_4));
-        vm.setEnv("ADMIN_5", vm.toString(ADMIN_5));
-        vm.setEnv("FEE_WALLET", vm.toString(FEE_WALLET));
+    /// Who holds authority is no longer read from the environment: the owner, every admin slot
+    /// and the fee wallet are LVR_OPERATOR. What `run()` still has to get right is that it
+    /// grants all of them to that one address and reads only the policy knobs outward.
+    function test_RunGrantsEveryRoleToTheOperator() public {
+        address op = LVR_OPERATOR;
+        // Named here on purpose: these are the variables that used to pick the roles, and the
+        // set of them that still works is exactly the set that names the operator.
+        vm.setEnv("OWNER", vm.toString(op));
+        vm.setEnv("FEE_WALLET", vm.toString(op));
+        vm.setEnv("ADMIN_1", vm.toString(op));
+        vm.setEnv("ADMIN_2", vm.toString(op));
+        vm.setEnv("ADMIN_3", vm.toString(op));
+        vm.setEnv("ADMIN_4", vm.toString(op));
+        vm.setEnv("ADMIN_5", vm.toString(op));
         vm.setEnv("FEE_BPS", "250");
         vm.setEnv("INITIAL_SUPPLY", "1000");
 
         Loveriver token = new Deploy().run();
 
-        assertEq(uint256(uint160(token.owner())), uint256(uint160(address(this))), "OWNER is the owner");
-        assertEq(token.feeBps(), 250, "FEE_BPS is read from the environment");
-        assertEq(token.totalSupply(), 1000 ether, "INITIAL_SUPPLY is read from the environment");
-        assertEq(uint256(uint160(token.feeWallet())), uint256(uint160(FEE_WALLET)), "FEE_WALLET is read");
+        assertEq(uint256(uint160(token.owner())), uint256(uint160(op)), "the operator owns the token");
+        assertEq(uint256(uint160(token.feeWallet())), uint256(uint160(op)), "the operator collects the fees");
+        assertTrue(token.isAdmin(op), "the operator is an administrator, from any slot");
+        assertEq(token.feeBps(), 250, "FEE_BPS is still read from the environment");
+        assertEq(token.totalSupply(), 1000 ether, "INITIAL_SUPPLY is still read from the environment");
+        assertEq(token.balanceOf(op), 1000 ether, "by default the supply lands on the operator");
+    }
 
-        assertTrue(token.isAdmin(ADMIN_1), "admin 1");
-        assertTrue(token.isAdmin(ADMIN_2), "admin 2");
-        assertTrue(token.isAdmin(ADMIN_3), "admin 3");
-        assertTrue(token.isAdmin(ADMIN_4), "admin 4");
-        assertTrue(token.isAdmin(ADMIN_5), "admin 5");
+    /// A role variable naming somebody else is refused, and the sentence says which variable.
+    /// Checked through the pure rule rather than through the environment: forge shares
+    /// `vm.setEnv` across tests and runs them in parallel, so a test that sets ADMIN_1 to a
+    /// foreign address is a race with every other test in this file.
+    function test_RoleRefusalNamesTheForeignVariable() public {
+        Deploy deployer = new Deploy();
+
+        assertEq(deployer.roleRefusal("ADMIN_1", ADMIN_1), "ADMIN_1 names an address that is not LVR_OPERATOR; roles are fixed in the token, not in the environment");
+        assertEq(deployer.roleRefusal("OWNER", ADMIN_2), "OWNER names an address that is not LVR_OPERATOR; roles are fixed in the token, not in the environment");
+        assertEq(
+            deployer.roleRefusal("FEE_WALLET", address(0)),
+            "FEE_WALLET names an address that is not LVR_OPERATOR; roles are fixed in the token, not in the environment"
+        );
+    }
+
+    /// And the operator itself is accepted, which is what makes the check a check rather than a
+    /// refusal of everything.
+    function test_RoleRefusalAcceptsTheOperator() public {
+        Deploy deployer = new Deploy();
+
+        assertEq(deployer.roleRefusal("ADMIN_1", LVR_OPERATOR), "");
+        assertEq(deployer.roleRefusal("OWNER", LVR_OPERATOR), "");
     }
 }

@@ -376,7 +376,7 @@ is the fallback that catches it, not the clock.
 
 ```
 src/Loveriver.sol        the token
-script/Deploy.s.sol      forge script: deploy with five admins + mint the initial supply
+script/Deploy.s.sol      forge script: deploy with the operator as owner, admins and fee wallet
 test/Loveriver.t.sol     forge tests: uncapped mint, fees, rotation rules, range fills
 tools/gen-wallets.mjs    derives wallets.json (1,000 + 5 admins) from one mnemonic
 tools/fund.mjs           dry-run-by-default funder; interval fill from the pooled admins
@@ -427,9 +427,11 @@ commits with no checks at all.
 ## Deploying
 
 `script/Deploy.s.sol` deploys the token with the five admins and mints the initial supply
-in a single broadcast. The owner is the broadcasting account, because `mint()` is
-owner-only — that keeps the mint in the same run as the deploy, and ownership can be
-moved afterwards with `transferOwnership()`.
+in a single broadcast. Authority is not configured at deploy time: the owner, all five
+administrator slots and the fee wallet are the one address in `Loveriver.OPERATOR`, a constant
+in the token's source. The deploy must therefore be signed by that operator key — `mint()` is
+owner-only and the initial supply is minted in the same broadcast — and the roles can still be
+re-delegated afterwards with `transferOwnership()` and `setAdmin()`.
 
 The deploy logic is a plain library function, `Deployer.deploy(owner, admins, feeWallet,
 feeBps, supply)` (plus an optional destination wallet), and `run()` only reads the
@@ -441,25 +443,20 @@ its values as arguments, tests call it directly and never touch process-wide env
 variables; one small test covers the env wiring in `run()`.
 
 ```bash
-ADMIN_1=0x... ADMIN_2=0x... ADMIN_3=0x... ADMIN_4=0x... ADMIN_5=0x... \
-FEE_WALLET=0x... forge script script/Deploy.s.sol:Deploy \
-  --rpc-url http://127.0.0.1:8545 --private-key $KEY --broadcast
+forge script script/Deploy.s.sol:Deploy \
+  --rpc-url http://127.0.0.1:8545 --private-key $OPERATOR_KEY --broadcast
 ```
 
 | Variable | Required | Meaning |
 |---|---|---|
-| `ADMIN_1`..`ADMIN_5` | yes | the five administrators |
-| `FEE_WALLET` | yes | first fee collector, must start empty |
-| `OWNER` | no | mint authority and owner, default the broadcasting account |
-| `MINT_TO` | no | where the initial supply lands, default the owner; set it to the distributing admin to run the funder straight after the deploy |
+| `MINT_TO` | no | where the initial supply lands, default the operator; set it to the distributing admin to run the funder straight after the deploy |
 | `FEE_BPS` | no | fee in basis points, default `100` (1%) |
-| `INITIAL_SUPPLY` | no | whole LVR minted to the owner, default `699999999999` |
+| `INITIAL_SUPPLY` | no | whole LVR minted, default `699999999999` |
+| `OWNER`, `FEE_WALLET`, `ADMIN_1`..`ADMIN_5` | no | refused unless they name the operator: the roles live in the token, so a name typed here is at best redundant and at worst a mistake the script stops on |
 
-The owner is named explicitly in the broadcast rather than inferred from the script's
-caller: under a test harness those are different accounts, and inferring one from the
-other deploys a token nobody can mint. `test/Deploy.t.sol` runs this script with
-`forge test`, so a regression in it fails the suite instead of waiting for a manual
-deploy.
+`test/Deploy.t.sol` runs this script with `forge test`, covering the roles it grants and both
+rejections — an administrator and an owner that are not the operator — so a regression fails
+the suite instead of waiting for a manual deploy.
 
 Omit `--broadcast` and nothing is sent: the script runs against a fork of the given RPC
 and reports what it would do. Rehearsed against a local anvil chain (id 31337) only:

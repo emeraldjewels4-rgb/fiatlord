@@ -2,7 +2,7 @@
 pragma solidity 0.8.24;
 
 import {Script, console} from "forge-std/Script.sol";
-import {Loveriver} from "../src/Loveriver.sol";
+import {Loveriver, LVR_OPERATOR} from "../src/Loveriver.sol";
 
 /**
  * Deploys Loveriver and mints the initial supply, in one broadcast.
@@ -13,26 +13,31 @@ import {Loveriver} from "../src/Loveriver.sol";
  * racing each other. `run()` is only the wrapper that reads the environment, names the
  * broadcasting account and calls it.
  *
- * The owner is the broadcasting account, because mint() is owner-only: taking the owner
- * from the same key that signs the transactions is what keeps the mint in the same run
- * as the deploy. Ownership can be moved afterwards with transferOwnership().
+ * WHO HOLDS AUTHORITY IS NOT AN ENVIRONMENT VARIABLE
  *
- * Required environment:
- *   ADMIN_1 .. ADMIN_5   the five administrator wallets
- *   FEE_WALLET           the first fee collector, which must start empty
+ * The owner, all five administrators and the fee wallet are one address: LVR_OPERATOR,
+ * fixed in the token's source. Nothing here reads a role from the environment, and a role
+ * variable that names a different address is refused rather than ignored - a deploy that
+ * quietly disregarded a name the caller typed is worse than one that stops.
+ *
+ * The consequence is that the deploy must be signed by that operator key: mint() is
+ * owner-only and the initial supply is minted in this same broadcast, so a key that is not
+ * the operator's cannot complete it. That is the intent - deployer, owner, administrators and
+ * treasury are the same address - and the roles can still be re-delegated afterwards with
+ * transferOwnership() and setAdmin().
  *
  * Optional environment:
- *   OWNER                the mint authority and owner (default: the broadcast account)
- *   MINT_TO              where the initial supply lands (default: the owner). Set it to
+ *   MINT_TO              where the initial supply lands (default: the operator). Set it to
  *                        the distributing admin so the funder can run immediately
  *                        after the deploy, with no manual transfer in between.
  *   FEE_BPS              fee in basis points (default 100 = 1%)
  *   INITIAL_SUPPLY       whole LVR minted (default 699999999999)
  *
+ * Refused if set to anything but the operator: OWNER, FEE_WALLET, ADMIN_1 .. ADMIN_5.
+ *
  * Example, against a local chain only:
- *   ADMIN_1=0x... ADMIN_2=0x... ADMIN_3=0x... ADMIN_4=0x... ADMIN_5=0x... \
- *   FEE_WALLET=0x... forge script script/Deploy.s.sol:Deploy \
- *     --rpc-url http://127.0.0.1:8545 --private-key $KEY --broadcast
+ *   forge script script/Deploy.s.sol:Deploy \
+ *     --rpc-url http://127.0.0.1:8545 --private-key $OPERATOR_KEY --broadcast
  *
  * Leave off --broadcast to simulate: the script runs, nothing is sent anywhere.
  *
@@ -79,36 +84,55 @@ library Deployer {
 }
 
 contract Deploy is Script {
+    /// The refusal rule, as a pure function: empty when the address a role variable named is
+    /// the operator, otherwise the sentence the deploy stops with.
+    ///
+    /// Separated from the environment read on purpose. `vm.setEnv` changes process state that
+    /// forge shares across tests and runs tests in parallel, so two tests that set different
+    /// ADMIN_1 values race. Pinning the rule here keeps the test honest and independent.
+    function roleRefusal(string memory name, address named) public pure returns (string memory) {
+        if (named == LVR_OPERATOR) return "";
+        return
+            string.concat(
+                name,
+                " names an address that is not LVR_OPERATOR; roles are fixed in the token, not in the environment"
+            );
+    }
+
+    /// A role variable set to anything but the operator stops the deploy. Ignoring it would
+    /// leave the caller believing a wallet they named holds a role it does not have.
+    function _refuseForeign(string memory name) private view {
+        string memory refusal = roleRefusal(name, vm.envOr(name, LVR_OPERATOR));
+        require(bytes(refusal).length == 0, refusal);
+    }
+
     function run() external returns (Loveriver token) {
-        address[5] memory admins = [
-            vm.envAddress("ADMIN_1"),
-            vm.envAddress("ADMIN_2"),
-            vm.envAddress("ADMIN_3"),
-            vm.envAddress("ADMIN_4"),
-            vm.envAddress("ADMIN_5")
-        ];
-        address feeWallet = vm.envAddress("FEE_WALLET");
+        address op = LVR_OPERATOR;
+
+        _refuseForeign("OWNER");
+        _refuseForeign("FEE_WALLET");
+        for (uint256 i = 1; i <= 5; i++) _refuseForeign(string.concat("ADMIN_", vm.toString(i)));
+
+        address[5] memory admins = [op, op, op, op, op];
         uint256 feeBps = vm.envOr("FEE_BPS", uint256(100));
         uint256 initialSupply = vm.envOr("INITIAL_SUPPLY", uint256(699_999_999_999)) * 1e18;
 
-        // The account that signs is the owner, because mint() is owner-only. It is named
-        // explicitly in the broadcast rather than inferred: a script's msg.sender and the
-        // account its calls execute as are not the same thing under a test harness, and
-        // inferring one from the other silently deploys a token nobody can mint.
-        address owner = vm.envOr("OWNER", msg.sender);
+        // Ownership and the initial supply are separate decisions: the operator keeps the
+        // mint authority, while the supply can land directly on the admin the funder will
+        // use, so distribution needs no manual transfer first.
+        address mintTo = vm.envOr("MINT_TO", op);
 
-        // Ownership and the initial supply are separate decisions: the owner keeps the
-        // mint authority, while the supply can land directly on the admin the funder
-        // will use, so distribution needs no manual transfer first.
-        address mintTo = vm.envOr("MINT_TO", owner);
-
-        vm.startBroadcast(owner);
-        token = Deployer.deploy(owner, admins, feeWallet, feeBps, initialSupply, mintTo);
+        // Broadcast as the operator, not as whatever key happens to be loaded: the mint below
+        // is owner-only, and the owner is the constant. A foreign key fails to sign here
+        // instead of deploying a token it cannot finish setting up.
+        vm.startBroadcast(op);
+        token = Deployer.deploy(op, admins, op, feeBps, initialSupply, mintTo);
         vm.stopBroadcast();
 
         console.log("Loveriver deployed at", address(token));
-        console.log("  owner      ", owner);
-        console.log("  fee wallet ", feeWallet);
+        console.log("  operator   ", op);
+        console.log("  owner      ", op);
+        console.log("  fee wallet ", op);
         console.log("  fee bps    ", feeBps);
         console.log("  minted     ", initialSupply);
         console.log("  minted to  ", mintTo);
