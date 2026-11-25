@@ -338,6 +338,28 @@ curl -sS 'https://fiatlord-dashboard.<you>.workers.dev/api/coinspot/prices?diag=
 Locally the same binding works offline: `npx wrangler dev`, and once
 `npx wrangler d1 execute fiatlord-prices --local --file build/site-fiatlord.schema.sql`.
 
+Two things about running that locally on Windows:
+
+- **Give the local database a short `--persist-to`.** Miniflare stores it at
+  `<persist>/v3/d1/miniflare-D1DatabaseObject/<64 hex>.sqlite-wal`; under a deep
+  workspace path that exceeds the 260-character Windows limit, so the directory
+  is never created and every D1 call fails with `internal error; reference =
+  <id>` while the rest of the worker answers normally. `npx wrangler dev
+  --persist-to C:/wrstate` avoids it. Pass the same `--persist-to` to
+  `wrangler d1 execute --local`, or the two commands use different databases and
+  a row written by one is invisible to the other.
+- **A `.env` in the directory you run from becomes the local worker's secrets.**
+  Starting at the repository root prints `Using secrets defined in .env` and
+  binds those variables to `env` for the local run. That is normal and it does
+  not affect D1 - a root-config probe with `.env` loaded answers
+  `?diag=stored` with `"source":"stored"` and `"stored":{"present":true}`, the
+  same as a config placed outside the root. Run from a clone with no `.env` if
+  the local worker should see no real credentials.
+
+A dev server left running against the same `--persist-to` can make the next one
+fail with that same `internal error`; stop the old process (its `node.exe`,
+`esbuild.exe` and `workerd.exe` children) before starting another.
+
 #### Prices: live from CoinSpot, not simulated
 
 The Worker serves `GET /api/coinspot/prices` from CoinSpot's public ticker
