@@ -527,6 +527,34 @@ which is what makes "is production what I just built" a single request instead
 of an inference. Neither value says anything about a commit hash: a deploy
 uploads the file verbatim, so there is nothing to inject one at.
 
+#### Scheduled live check: is the host still the clone, with working storage?
+
+Everything above says what a host should answer; nothing in the repo looked at
+whether it does. `build/check_live.py` asks, and the `live-check` workflow runs
+it every 30 minutes, so a stale deploy or a broken carry is noticed instead of
+discovered by hand during an outage.
+
+```
+python build/check_live.py                        # the production host
+python build/check_live.py --url http://127.0.0.1:8787
+```
+
+- `GET /api/version` must name the worker that `node build/worker-id.mjs`
+  computes from this checkout, report a 12-hex page id, and say
+  `db: "bound"`.
+- An ordinary prices GET must answer quotes; that is what writes the row.
+- `GET /api/coinspot/prices?diag=cold` must then read the row back and carry it
+  inside the five-minute window. It is retried for a few seconds because the
+  write is scheduled after the prices answer, so the first probe can arrive
+  before the row does.
+
+Exit 1 lists every failed check, and the reason narrows the cause: a worker id
+mismatch is a deploy that is not this checkout, `db: "unbound"` is a deploy
+that lost its binding, and a 502 from the cold read is storage that is present
+but too old, unreadable, or empty. The workflow compares against the default
+branch, so deploying from uncommitted work shows as a mismatch until that work
+is committed - which is what it is for.
+
 #### Caching contract: build/site-fiatlord.worker.js
 
 The worker sets two cache policies, plus one rule that keeps them from

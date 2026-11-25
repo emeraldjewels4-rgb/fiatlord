@@ -14,6 +14,7 @@
 !/.github/workflows/
 !/.github/check_shell_bytes.py
 !/.github/workflows/dashboard.yml
+!/.github/workflows/live-check.yml
 
 # Directories must be unignored before any file inside them can be.
 !/build/
@@ -21,6 +22,7 @@
 !/build/web/assets/
 
 # Build tooling and the worker.
+!/build/check_live.py
 !/build/check_site_worker.mjs
 !/build/make_site_fiatlord.py
 !/build/site-fiatlord.deploy.json

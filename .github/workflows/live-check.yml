@@ -1,0 +1,41 @@
+name: live-check
+
+# Production is a deployed Worker, so nothing in CI sees it: the staging check
+# compares the checkout with a tree built from that same checkout, and passes
+# whether or not the deploy ever landed. A host without its DB binding, a
+# stored row that stopped being readable, and a deployment that is simply old
+# all keep answering prices until the upstream dies - and the page then falls
+# back to simulated ones without saying why.
+#
+# This runs the same three questions by hand would: which worker is deployed,
+# does it have a database, and does a cold read still carry the stored row.
+# A stale deploy shows up here as a worker id mismatch, which is also how a
+# half-committed deploy state becomes visible instead of remembered.
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live:
+    name: live host
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # The worker id is computed by build/worker-id.mjs, so the comparison is
+      # against this checkout rather than a number copied into the workflow.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Deployed worker matches this checkout, and a cold read carries the row
+        run: python build/check_live.py
