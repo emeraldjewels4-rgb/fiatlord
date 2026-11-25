@@ -339,10 +339,18 @@ for (const phase of phases) {
 }
 const held = purgeLedger(ledgerFile, Date.now());
 // One detached purge past the retention, so the entries expire on time with no cron, no Task
-// Scheduler entry and no window flashing every minute.
+// Scheduler entry and no window flashing every minute. It is unref'd, its stdio is ignored and
+// it sleeps for ten minutes - three reasons it must never be what decides when this run ends.
 const purgePid = deferPurge(ledgerFile);
 console.log(`  done: floor restored everywhere it was needed, ${phases.length} stage(s) minted`);
-console.log(
+const lastLine =
   `  ledger: ${held.kept} entr${held.kept === 1 ? 'y' : 'ies'} kept ${RETENTION_MS / 60000} minutes, then destroyed ` +
-    `by a scheduled purge (pid ${purgePid}); the chain keeps the permanent record`
-);
+  `by a scheduled purge (pid ${purgePid}); the chain keeps the permanent record`;
+// The mints are mined and the ledger is written, so nothing is left to wait for: the run ends
+// here, by itself, instead of trusting that every remaining handle - a provider socket, the
+// detached purge - has gone quiet. The exit hangs off the flush of the last line rather than
+// following it immediately, because stdout is written asynchronously when it is a pipe on
+// Windows and an immediate exit would cut off the line reporting what just happened. A caller
+// piping this output therefore sees every line and its prompt back, not a process sitting on a
+// ten-minute sleeping grandchild.
+process.stdout.write(`${lastLine}\n`, () => process.exit(0));

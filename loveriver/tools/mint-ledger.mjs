@@ -80,7 +80,7 @@ import {
   writeSync,
 } from 'node:fs';
 import { spawn } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { isMain, selftest } from './selftest.mjs';
@@ -235,12 +235,22 @@ export function appendLedger(file, entry) {
  *
  * The margin is not decoration: waking at exactly the retention can beat the newest entry's
  * own timestamp by a millisecond and leave that one line for the next run to find.
+ *
+ * STDIO, BECAUSE A DETACHED CHILD CAN OUTLIVE ITS PARENT'S PROMPT
+ *
+ * This child sleeps for the retention and must add nothing to the run's output, so all three
+ * of its streams are named explicitly and all three are 'ignore' - NUL handles of its own, not
+ * a copy of the caller's stdout or stderr. One inherited handle is enough to keep a pipe open
+ * after the minting process exits, and a `topup.mjs --broadcast | tee log` that never gets its
+ * prompt back is a run the operator eventually kills. `unref()` then takes the child off this
+ * process's handle list, and `detached` puts it in its own process group. The selftest proves
+ * the pipe closes as soon as the parent exits, rather than after ten minutes.
  */
 export function deferPurge(file, delayMs = RETENTION_MS + 1000) {
   const child = spawn(
     process.execPath,
     [fileURLToPath(import.meta.url), '--purge', '--file', file, '--after', String(delayMs)],
-    { detached: true, stdio: 'ignore', windowsHide: true }
+    { detached: true, stdio: ['ignore', 'ignore', 'ignore'], windowsHide: true }
   );
   child.unref();
   return child.pid;
@@ -453,6 +463,46 @@ if (flag('selftest') && isMain(import.meta.url)) {
   rmSync(raceFile, { force: true });
   rmSync(`${raceFile}.lock`, { force: true });
   rmSync(workerFile, { force: true });
+
+  // The failure this exists for is not a wrong value, it is a run that never returns: a minting
+  // process prints its last line and then sits there because the purge child it spawned still
+  // holds the pipe the caller is reading. So the check is made from outside the module, the way
+  // a shell sees it - a helper whose stdout is a pipe, which spawns a purge and exits. If the
+  // child inherited that pipe, `end` cannot arrive until the child wakes, and the delay below is
+  // two minutes rather than ten so a failure reports instead of stalling the suite.
+  const detachHelper = join(scratch, 'detach.mjs');
+  const detachedLedger = join(scratch, 'detached.jsonl');
+  writeFileSync(
+    detachHelper,
+    [
+      `import { deferPurge } from ${JSON.stringify(pathToFileURL(fileURLToPath(import.meta.url)).href)};`,
+      `console.log(String(deferPurge(${JSON.stringify(detachedLedger)}, 120000)));`,
+    ].join('\n')
+  );
+  const helper = spawn(process.execPath, [detachHelper], { stdio: ['ignore', 'pipe', 'pipe'] });
+  helper.stdout.resume();
+  helper.stderr.resume();
+  let purgePid = '';
+  helper.stdout.on('data', (chunk) => {
+    purgePid += chunk;
+  });
+  const helperDone = new Promise((done) => helper.on('exit', done));
+  const helperPipeEnded = new Promise((done) => helper.stdout.on('end', () => done(true)));
+  await helperDone;
+  const pipeEnded = await Promise.race([
+    helperPipeEnded,
+    new Promise((done) => setTimeout(() => done(false), 10_000)),
+  ]);
+  test.check('a deferred purge does not hold the caller\'s stdout open', pipeEnded, true);
+  // The child is still asleep past the retention, which is correct; the test does not wait for it.
+  try {
+    if (purgePid.trim()) process.kill(Number(purgePid.trim()));
+  } catch {
+    // Already gone, or not ours to signal: either way nothing here depends on it.
+  }
+  rmSync(detachHelper, { force: true });
+  rmSync(detachedLedger, { force: true });
+
   rmSync(scratch, { recursive: true, force: true });
 
   test.finish();
