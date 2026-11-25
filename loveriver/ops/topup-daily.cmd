@@ -18,8 +18,9 @@ rem
 rem Register it with:
 rem   schtasks /Create /TN "Loveriver top-up" /TR "\"C:\path\to\loveriver\ops\topup-daily.cmd\"" /SC DAILY /ST 07:20 /F
 rem
-rem --within-window gates the FULL stage only: outside a mint window this still restores the
-rem half floor every day and leaves the top-up to the calendar. That is the intended split.
+rem --within-window gates the FULL stage only: outside a mint window this still refills any
+rem admin below half straight to the full mark, every day, and leaves the rest to the
+rem calendar. That is the intended split, not an oversight.
 setlocal EnableExtensions
 
 rem %%~fI (not %%~dp0..) so the paths logged are clean: "ops\..\ops\topup.env" is correct

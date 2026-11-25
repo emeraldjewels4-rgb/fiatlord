@@ -16,9 +16,9 @@
 #
 #   crontab:  17 7 * * * LOVERIVER_ENV=/etc/loveriver/topup.env /path/to/loveriver/ops/topup-daily.sh
 #
-# --within-window gates the FULL stage only: outside a mint window this still restores the
-# half floor every day and leaves the top-up to the calendar. That is the intended split, not
-# an oversight.
+# --within-window gates the FULL stage only: outside a mint window this still refills any
+# admin below half straight to the full mark, every day, and leaves the rest to the calendar.
+# That is the intended split, not an oversight.
 set -u
 
 APP_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd) || exit 2

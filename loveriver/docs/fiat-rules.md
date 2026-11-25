@@ -63,10 +63,10 @@ schedule is a commitment by the operator, not a constraint on the token.
 When the ordinary channel fails, the issuer steps in and creates the money itself rather than
 waiting for the market to supply it.
 
-**LVR:** this is the half-floor. Below half of the mark, `topup.mjs` mints back to exactly
-half, **ungated** — no window, no calendar, no approval. The rule is that an emptied wallet
-is not left emptied. The full stage (half → mark) is the gated issuance that waits for a
-window.
+**LVR:** this is the floor refill. Any admin wallet below half of the mark is minted straight
+back to the **full mark**, **ungated** — no window, no calendar, no approval. The rule is that
+a drained wallet is not left drained, and that it comes back at full strength rather than at
+half. Only the band between half and the mark is the gated issuance that waits for a window.
 
 **Where it differs:** the floor is mechanical and unconditional. Real liquidity support is
 discretionary, priced, collateralised and sterilised, and it is a loan against assets rather
@@ -121,7 +121,7 @@ indefensible as "these mints are untraceable". The whitepaper states both.
 |---|---|---|
 | Money is created by lending (BoE) | Uncapped owner mint with no borrower | Supply elasticity copied; credit channel absent |
 | No fixed supply, policy sets the pace (BoE) | No cap; two windows a year; recorded mark | Copied in shape, unenforced on chain |
-| Direct creation as a backstop (BoE/QE) | Ungated floor refill to half | Copied mechanically; unconditional where fiat is discretionary |
+| Direct creation as a backstop (BoE/QE) | Ungated refill of anything below half to the full mark | Copied mechanically; unconditional where fiat is discretionary |
 | Quantity is measured and published (H.6) | `totalSupply()` + mint `Transfer` events | Copied |
 | Records kept ≥ 5 years (FATF 11) | Ledger deleted after 10 minutes | **Opposite** |
 | Legal tender, central-bank independence, deposit insurance | None of these | Absent |

@@ -345,4 +345,4 @@ for (const signer of signers) {
   console.log(`    ${signer.address} filled all ${empty.length} empty wallets in one call (${tx.hash})`);
 }
 console.log(`  done: interval 0..${count} filled in ${signers.length} call(s), no fee charged`);
-console.log('  the admin pool is now empty: tools/topup.mjs restores the half floor at once and the full mark inside a window');
+console.log('  the admin pool is now empty: tools/topup.mjs refills each admin to the full mark at once');

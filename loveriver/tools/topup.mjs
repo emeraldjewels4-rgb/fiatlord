@@ -8,16 +8,18 @@
  *   is the supply that exists for distribution; the distribution wallets hold only what has
  *   been paid out of it. So the pool is what must never be left empty.
  *
- *   Stage 1, the floor.   Below half of the mark, mint back to exactly half. This stage is
- *                         never gated: it is the rule that a wallet does not stay emptied,
- *                         and a rule with a calendar on it is not a floor.
- *   Stage 2, the full.    Between the floor and the mark, mint back to the mark. This stage
- *                         is the issuance, so `--within-window` puts it on the mint calendar
+ *   Stage 1, the floor.   Below half of the mark, mint straight back to the mark: a drained
+ *                         wallet comes back at its full amount, not at half of it, whether
+ *                         it was emptied or left at a quarter. This stage is never gated:
+ *                         it is the rule that a wallet does not stay drained, and a rule
+ *                         with a calendar on it is not a floor.
+ *   Stage 2, the full.    Between half and the mark, mint back to the mark. This stage is
+ *                         the issuance, so `--within-window` puts it on the mint calendar
  *                         and outside a window it waits.
  *
- * An emptied wallet therefore goes to half at once and to full as soon as issuance is
- * allowed. Two mints instead of one when both stages run, which is the cost of being able
- * to say exactly which part of a refill was the safety floor and which was issuance.
+ * So a refill below half is one ungated mint to full strength, and only the band between
+ * half and the mark waits for issuance. That is what makes it possible to say exactly which
+ * part of a refill was the safety floor and which was issuance.
  *
  * WHERE THE MARK COMES FROM
  *
@@ -219,7 +221,7 @@ if (!recorded || target !== recorded.fullMark) {
 }
 const floor = target / 2n;
 console.log(
-  `  full mark ${formatUnits(target, 18)} LVR per admin, half floor ${formatUnits(floor, 18)} (${source})`
+  `  full mark ${formatUnits(target, 18)} LVR per admin, floor at half ${formatUnits(floor, 18)} (${source})`
 );
 
 // Two lists, because the two stages are different promises: below the floor is a wallet that
@@ -231,9 +233,15 @@ balances.forEach((balance, index) => {
   const state =
     balance === 0n ? 'EMPTY' : balance < floor ? 'below floor' : balance < target ? 'floor to full' : 'full';
   console.log(`    ${admins[index]}  ${formatUnits(balance, 18)} LVR (${percent}%)  ${state}`);
-  if (balance < floor) floorTopUps.push({ address: admins[index], amount: floor - balance });
-  const afterFloor = balance < floor ? floor : balance;
-  if (afterFloor < target) fullTopUps.push({ address: admins[index], amount: target - afterFloor });
+  // Anything below half is refilled to the full mark in the ungated stage: the rule is that
+  // the pool comes back at full strength rather than at half, whether it was drained to zero
+  // or to a quarter. Stage 2 then has nothing left to add for it; only the band between half
+  // and the mark waits for a window.
+  if (balance < floor) {
+    floorTopUps.push({ address: admins[index], amount: target - balance });
+    return;
+  }
+  if (balance < target) fullTopUps.push({ address: admins[index], amount: target - balance });
 });
 
 // The floor is not gated. Only stage 2 asks the calendar.
@@ -254,7 +262,8 @@ if (withinWindow) {
 const windowLabel = !withinWindow ? 'ungated' : gateOpen ? `${gateOpen.label} of ${gateOpen.year}` : 'none';
 
 const phases = [];
-if (floorTopUps.length > 0) phases.push({ rule: 'floor', name: 'floor: back to half, never empty', items: floorTopUps });
+if (floorTopUps.length > 0)
+  phases.push({ rule: 'floor', name: 'floor: a drained wallet back to the mark, never drained', items: floorTopUps });
 if (canIssue && fullTopUps.length > 0) phases.push({ rule: 'full', name: 'full: back to the mark', items: fullTopUps });
 
 const total = phases.reduce(

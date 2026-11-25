@@ -83,8 +83,9 @@ $settings = New-ScheduledTaskSettingsSet @settingsParams
 $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" `
   -LogonType Interactive -RunLevel Limited
 
-$description = 'Daily Loveriver top-up: restores the admin half floor, and fills to the mark ' +
-  'inside a mint window. Args and secrets live in ops\topup.env.'
+$description = 'Daily Loveriver top-up: refills any admin below half straight to the full ' +
+  'mark, and fills the rest to the mark inside a mint window. Args and secrets live in ' +
+  'ops\topup.env.'
 
 if ($WhatIfOnly) {
   Write-Host "  would register '$TaskName' daily at $Time, wake=$(-not $NoWake), start-when-available=true"

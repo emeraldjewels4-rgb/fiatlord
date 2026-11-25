@@ -13,8 +13,9 @@ Loveriver is an ERC-20-style token with three properties that matter:
 1. **Elastic, uncapped supply.** The owner can mint without limit. There is no `MAX_SUPPLY`
    and no code pretends otherwise.
 2. **Calendar-paced issuance.** New supply enters through two four-week windows a year, split
-   into two stages with different gates: an ungated floor that restores an emptied wallet to
-   half, and a gated full refill that waits for a window.
+   into two stages with different gates: an ungated refill that takes a drained wallet
+   straight to its full mark, and a gated top-up from half to the mark that waits for a
+   window.
 3. **A ten-minute mint ledger.** The local record of each mint exists for ten minutes and is
    then destroyed. This is a privacy choice, and §5 says exactly what it can and cannot do.
 
@@ -63,12 +64,13 @@ so the pool is what must not stay empty:
 
 | Stage | Trigger | Target | Gated? |
 |---|---|---|---|
-| Floor | balance < mark/2 | exactly mark/2 | **No** — a rule with a calendar on it is not a floor |
-| Full | balance < mark | the mark | Yes — `--within-window` |
+| Floor | balance < mark/2 | the mark | **No** — a rule with a calendar on it is not a floor |
+| Full | mark/2 ≤ balance < mark | the mark | Yes — `--within-window` |
 
-An emptied wallet therefore goes 0 → half immediately, and half → full when issuance is
-allowed: two mints instead of one, which is the cost of being able to say which part of a
-refill was safety and which was issuance.
+A wallet below half therefore goes to the mark immediately, in one ungated mint, because the
+pool comes back at full strength. One between half and the mark waits for issuance: what is
+poured back below half is safety, what closes the gap above it is issuance, and they are never
+the same mint.
 
 **The mark is recorded, never re-inferred.** `fund.mjs` writes it just before draining the
 admins; `topup.mjs` reads it. Resolution order is `--target` (a person) → the recorded mark →
@@ -139,7 +141,7 @@ explicitly.
 |---|---|
 | Money is created by lending, supply is elastic (BoE 2014) | Uncapped mint; elasticity copied, credit channel absent |
 | No fixed supply; policy sets the pace (BoE 2014) | No cap; two windows; mark moved only by a person |
-| Direct creation as a backstop (BoE/QE) | Ungated floor to half; mechanical where fiat is discretionary |
+| Direct creation as a backstop (BoE/QE) | Ungated refill of anything below half to the full mark; mechanical where fiat is discretionary |
 | Quantity measured and published (Fed H.6) | `totalSupply()` and mint events; fully public |
 | Records kept ≥ 5 years (FATF 11) | Ledger destroyed after 10 minutes — **opposite** |
 
@@ -200,10 +202,11 @@ node tools/topup.mjs --rpc ... --token ...     # dry run; add --within-window to
 ```
 
 Rehearsed on local anvil (chain id 31337) across this project: deploy with five admins, interval
-fill of 1,000 wallets in 10 transactions, floor refill to half with the window closed, full
-refill to the mark with it open, an emptied wallet taken 0 → half → mark in one run, a closed gate
-exiting 1 with the block unchanged, ledger entries written per mint and destroyed at the
-ten-minute boundary, and both scheduler wrappers propagating a dead RPC as exit 1.
+fill of 1,000 wallets in 10 transactions, five emptied admins refilled 0 → mark in one ungated
+mint each with the window closed, a quarter-full admin refilled to the mark in the same ungated
+mint, a half-to-full one left waiting for the window, a closed gate exiting 1 with the block
+unchanged, ledger entries written per mint and destroyed at the ten-minute boundary, and both
+scheduler wrappers propagating a dead RPC as exit 1.
 
 ## 10. Status
 

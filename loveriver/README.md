@@ -109,21 +109,20 @@ It is safe to re-run: only empty wallets are filled. A wallet holding less than 
 is treated as the wreck of an interrupted fill and stops the run with the addresses listed,
 because filling around it would hand identical wallets different amounts.
 
-## Admin wallets: refilled when halved, never empty
+## Admin wallets: a drained one comes back to the full mark
 
 The five admin wallets are the pool distribution spends from, so the pool is what must not
 stay empty. `tools/topup.mjs` refills it in two stages, and the stages have different gates:
 
 | Stage | When | Amount | Gate |
 |---|---|---|---|
-| floor | below half of the mark | exactly half | none — this is the never-empty rule |
-| full | below the mark | the mark | the mint window, when `--within-window` is on |
+| floor | below half of the mark | the full mark | none — this is the never-drained rule |
+| full | below the mark, at or above half | the mark | the mint window, when `--within-window` is on |
 
-An emptied wallet is therefore brought to half immediately and to full as soon as issuance
-is allowed. Refilling before the wallet is bare is the only form of "never to empty" that
-code can keep: an admin at 0 has already failed. When both stages run in one command that
-is two mints rather than one, which is what makes it possible to say which part of a refill
-was the safety floor and which was issuance.
+A wallet drained below half — emptied, or left at a quarter — is therefore refilled straight
+back to its full amount in one ungated mint: the pool returns at full strength, not at half.
+Only the band between half and the mark waits for issuance, which is what makes it possible
+to say which part of a refill was the safety floor and which was issuance.
 
 ### The full mark is recorded, not re-inferred
 
@@ -173,7 +172,8 @@ one window's mint across the five admins as a plan (the split is printed, never 
 ### Enforcing it
 
 `tools/topup.mjs --within-window` puts the **full** stage on the same calendar: outside both
-windows it mints only the half floor and leaves the rest waiting. The flag is opt-in,
+windows it mints only the ungated refill — every wallet below half back to the mark — and
+leaves the rest waiting. The flag is opt-in,
 because a refill is not the annual issuance — but the annual issuance is what you do not
 want guessing, so turning the gate on is one argument. The floor is deliberately not gated:
 a never-empty rule with a calendar on it is not a floor.
@@ -226,7 +226,7 @@ at 07:17 still gets the 19:17 one. Repeating is free — a run only fills what i
 and with nothing to do it exits `0`.
 
 Verified on this machine against a local anvil chain: the registered task refilled four empty
-admins from 0 to the half floor and then to the mark, wrote eight ledger lines and exited `0`;
+admins from 0 to the full mark, wrote four ledger lines and exited `0`;
 a second run logged `nothing to do` and exited `0`; and a trigger set three minutes in the past
 started on its own, which is the catch-up a slept-through day relies on.
 
@@ -235,8 +235,8 @@ when Task Scheduler's `PATH` cannot find node); copy `ops/topup.env.example` and
 The token address is deliberately not in it -- it comes from `deployments.json`. The exit code
 in the log is what to alert on: `0`
 meant it minted or had nothing to do, `1` refused or failed, `2` was misconfigured. Outside a
-mint window a scheduled run still restores the half floor and exits `0` — the calendar gates
-the full stage, not the floor.
+mint window a scheduled run still restores the ungated part — any wallet below half back to
+the mark — and exits `0`; the calendar gates the full stage, not the floor.
 
 ## The mint ledger: ten minutes, then destroyed
 
@@ -380,7 +380,7 @@ script/Deploy.s.sol      forge script: deploy with five admins + mint the initia
 test/Loveriver.t.sol     forge tests: uncapped mint, fees, rotation rules, range fills
 tools/gen-wallets.mjs    derives wallets.json (1,000 + 5 admins) from one mnemonic
 tools/fund.mjs           dry-run-by-default funder; interval fill from the pooled admins
-tools/topup.mjs          refills an admin wallet to the full mark once it drops below half
+tools/topup.mjs          refills any admin below half straight to the full mark
 tools/full-mark.mjs      the stored full mark both scripts write and read
 tools/mint-clock.mjs     read-only GMT+11 clock: the two year-end mint windows
 tools/mint-window.mjs    the schedule the clock reports and the top-up gate enforces
