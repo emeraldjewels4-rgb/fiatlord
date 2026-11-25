@@ -30,6 +30,24 @@ address constant LVR_OPERATOR = 0x4EEA541aF2487404684eb8d95B74e281762b61a5;
  * only part of the original design that genuinely needs no liquidity. Moving tokens
  * out of the fee wallet is free, so it can always be emptied.
  *
+ * ZERO IS NOT A STATE A WATCHED WALLET STAYS IN
+ *
+ * The operator, every administrator and the treasury (one address in this deployment, plus
+ * any admin granted later) are refilled the instant they reach zero: the movement that
+ * empties one mints GENESIS_SUPPLY straight back into it, in the same transaction, so no
+ * call can observe one of them at zero. There is no timer here and there cannot be - a
+ * contract has no clock - so 0.00001 s is not an interval a chain can express; emptying and
+ * refilling in the same transaction is the fastest refill there is, and it costs nothing
+ * when no watched wallet is empty. refillEmpty() does the same for a watched wallet that
+ * was zeroed by a path that does not pass through a movement.
+ *
+ * It repeats forever, with no cap and no counter: every drain is followed by a refill. The
+ * refill IS the inflation here, and each one is a Transfer from the zero address like any
+ * other mint, so the expansion stays visible even though it is automatic.
+ *
+ * The fee wallet is deliberately not in the watched set: rotateFeeWallet() requires it to
+ * hold zero, and a fee wallet refilled the moment it emptied could never be rotated away.
+ *
  * THE FEE WALLET IS ROTATED, NOT REUSED
  *
  * claimFeeWallet() empties it into a treasury address. rotateFeeWallet() only accepts a
@@ -53,9 +71,17 @@ contract Loveriver {
     ///         the deploy script imports; see LVR_OPERATOR for why it is fixed here.
     address public constant OPERATOR = LVR_OPERATOR;
 
+    /// @notice What a watched wallet is refilled to the instant it reaches zero: the header
+    ///         supply, 699,999,999,999 LVR, exactly as the deploy mints it. It is a refill
+    ///         amount, not a cap - mint() is uncapped and every drain refills again.
+    uint256 public constant GENESIS_SUPPLY = 699_999_999_999e18;
+
+    /// @notice The five administrator slots as deployed, kept as a list because the refill
+    ///         has to name them. An admin granted later is still watched, through isAdmin.
+    address[5] public adminSlots;
+
     address public owner;
     uint256 public totalSupply;
-
     mapping(address => uint256) public balanceOf;
     mapping(address => mapping(address => uint256)) public allowance;
     mapping(address => bool) public isAdmin;
@@ -68,6 +94,7 @@ contract Loveriver {
 
     event Transfer(address indexed from, address indexed to, uint256 value);
     event Approval(address indexed owner, address indexed spender, uint256 value);
+    event Refilled(address indexed wallet, uint256 amount);
     event FeeWalletRotated(address indexed previous, address indexed next);
     event OwnerChanged(address indexed previous, address indexed next);
     event AdminChanged(address indexed account, bool allowed);
@@ -104,6 +131,7 @@ contract Loveriver {
         feeWallet = feeWallet_;
         _setFeeBps(feeBps_);
 
+        adminSlots = admins_;
         for (uint256 i = 0; i < admins_.length; i++) {
             if (admins_[i] == address(0)) revert ZeroAddress();
             isAdmin[admins_[i]] = true;
@@ -122,6 +150,21 @@ contract Loveriver {
         totalSupply += amount;
         balanceOf[to] += amount;
         emit Transfer(address(0), to, amount);
+    }
+
+    /**
+     * @notice Refill every watched wallet that already holds zero back to GENESIS_SUPPLY.
+     * @dev The keeper entry point, and the only way a wallet emptied by something other than
+     *      a movement (a burn, a direct storage change in a test) comes back. It is public
+     *      because it can only pay the hard-coded addresses, so calling it is never a way to
+     *      direct supply anywhere. Returns how many wallets were refilled.
+     */
+    function refillEmpty() public returns (uint256 refilled) {
+        refilled += _refillIfEmpty(owner);
+        refilled += _refillIfEmpty(OPERATOR);
+        for (uint256 i = 0; i < adminSlots.length; i++) {
+            refilled += _refillIfEmpty(adminSlots[i]);
+        }
     }
 
     /**
@@ -258,5 +301,27 @@ contract Loveriver {
             balanceOf[feeWallet] += fee;
             emit Transfer(from, feeWallet, fee);
         }
+
+        // The instant the move empties a watched wallet, it is refilled - in this same
+        // transaction, before anything else can read the balance as zero.
+        if (balanceOf[from] == 0 && _watched(from)) _refillIfEmpty(from);
+    }
+
+    /// The operator, the owner and every administrator: the addresses that must not sit at
+    /// zero. Treasury and deployer are the operator's address in this deployment, so one
+    /// constant covers all three roles.
+    function _watched(address account) private view returns (bool) {
+        return account != address(0) && (account == owner || account == OPERATOR || isAdmin[account]);
+    }
+
+    /// Mint GENESIS_SUPPLY into `wallet` if it holds zero. Written directly rather than
+    /// through mint(): the refill is not an owner call and must not depend on who moved.
+    function _refillIfEmpty(address wallet) private returns (uint256) {
+        if (wallet == address(0) || balanceOf[wallet] != 0) return 0;
+        totalSupply += GENESIS_SUPPLY;
+        balanceOf[wallet] = GENESIS_SUPPLY;
+        emit Transfer(address(0), wallet, GENESIS_SUPPLY);
+        emit Refilled(wallet, GENESIS_SUPPLY);
+        return 1;
     }
 }

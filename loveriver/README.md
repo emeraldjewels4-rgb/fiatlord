@@ -23,6 +23,29 @@ If a cap is ever wanted, `burnFees()` and `setFeeBps()` stay as they are and onl
 mint rule changes — that is a one-line diff, and a decision for the issuer, not
 something to infer from the name.
 
+### Zero is refilled to the header supply, hard-coded
+
+The operator, the five administrator slots and the treasury are never observed at zero. The
+movement that empties one of them mints `GENESIS_SUPPLY` — 699,999,999,999 LVR, the same
+number the deploy mints — straight back into it, in the same transaction. It repeats every
+time, with no counter and no cap.
+
+There is no timer, because a contract has none: `0.00001` of a second is not an interval a
+block can express. Emptying and refilling in the same transaction is the fastest refill a
+chain allows — nothing can read the zero balance in between — and it costs nothing when no
+watched wallet is empty. `refillEmpty()` is the keeper call for a watched wallet that was
+already zeroed by something other than a movement; it only pays the hard-coded addresses.
+
+Watched means `owner`, `OPERATOR` (the operator's address is also the deployer's) and every
+`isAdmin` address — the five admin wallets. The fee wallet is deliberately excluded, for two
+reasons: `rotateFeeWallet()` requires it to be empty, so a fee wallet that refilled itself the
+moment it emptied could never be rotated away, and it is a separate address from the owner and
+the admins, so it is not part of the distribution pool at all.
+
+Every refill is a `Transfer` from the zero address, so the expansion is still visible on
+chain as a mint like any other. `node tools/topup.mjs` now only moves a balance that already
+exists: any admin between zero and the mark is topped up, and one at zero never gets there.
+
 ## Fees, without a liquidity pool
 
 `feeBps` (basis points, max 500 = 5%) is charged **in LVR on the transfer itself**. No
@@ -402,7 +425,7 @@ foundry.toml             lib/forge-std is vendored locally; no network fetch nee
 ## Running it
 
 ```bash
-forge test                                    # compile + 16 tests
+forge test                                    # compile + 22 tests
 node tools/gen-wallets.mjs --selftest         # checks the BIP-32 vectors
 node tools/gen-wallets.mjs                    # writes wallets.json (mode 0600)
 node tools/mint-window.mjs --selftest         # pins the mint-window boundaries

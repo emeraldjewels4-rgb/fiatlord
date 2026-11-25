@@ -11,7 +11,9 @@ security, or a claim that this token is money.
 Loveriver is an ERC-20-style token with three properties that matter:
 
 1. **Elastic, uncapped supply.** The owner can mint without limit. There is no `MAX_SUPPLY`
-   and no code pretends otherwise.
+   and no code pretends otherwise. On top of that, a watched wallet (operator, administrators,
+   treasury) that reaches zero is refilled to the header supply of 699,999,999,999 LVR in the
+   same transaction, automatically, forever — see §3.
 2. **Calendar-paced issuance.** New supply enters through two four-week windows a year, split
    into two stages with different gates: an ungated refill that takes a drained wallet
    straight to its full mark, and a gated top-up from half to the mark that waits for a
@@ -38,8 +40,8 @@ summarises where the analogy holds and where it breaks.
 | Distribution | `distributeRange(to, perWallet, start, end)`, admin-only, no fee |
 | Admins | five addresses fixed at deploy; they are the distribution pool |
 
-16 Foundry tests cover the mint, the fee ceiling, the rotation precondition, the burn, range
-fills and the deploy script.
+22 Foundry tests cover the mint, the fee ceiling, the rotation precondition, the burn, range
+fills, the automatic refill and the deploy script.
 
 ## 3. Supply and issuance
 
@@ -71,6 +73,20 @@ A wallet below half therefore goes to the mark immediately, in one ungated mint,
 pool comes back at full strength. One between half and the mark waits for issuance: what is
 poured back below half is safety, what closes the gap above it is issuance, and they are never
 the same mint.
+
+**The refill is hard-coded, and it is not the top-up.** A watched wallet — `owner`, `OPERATOR`
+(the operator's address is also the deployer's) and every `isAdmin` address — that reaches zero
+is minted back to `GENESIS_SUPPLY` (699,999,999,999 LVR, the
+header supply) inside the very transaction that empties it: `_move()` refills the sender
+before returning, so no call can observe it at zero. `refillEmpty()` is the keeper entry
+point for a wallet that was already zeroed by some other path; it can only pay those fixed
+addresses. There is no timer and no interval: a contract has no clock, so `0.00001` of a
+second is not something a block can express, and same-transaction refill is strictly faster
+than any clock could be. The rule repeats with no cap and no counter, and each refill is a
+`Transfer` from the zero address. The fee wallet is excluded on purpose: rotation requires
+it to be empty. Consequence for the top-up stages above: the ungated floor can no longer
+find a zero admin to restore, because zero never persists; `topup.mjs` only closes the band
+between a partial balance and the mark.
 
 **The mark is recorded, never re-inferred.** `fund.mjs` writes it just before draining the
 admins; `topup.mjs` reads it. Resolution order is `--target` (a person) → the recorded mark →
@@ -179,6 +195,11 @@ against local anvil only; no public network was used at any point.
 - **The owner can mint without limit, at any time.** The two-window schedule is tooling, not
   consensus. The operator key (`OWNER_KEY`) can inflate the supply arbitrarily, including past the
   mark, outside a window, and in a single transaction.
+- **The refill mints without any owner action at all.** Draining a watched wallet — by
+  distributing its balance, by moving it, even by sending zero from an empty one — mints
+  699,999,999,999 LVR back into it in that transaction. Anyone able to move a watched wallet's
+  balance can therefore cause inflation repeatedly, and the supply has no ceiling at all. That
+  is the rule as specified, not an accident; the chain still shows every refill as a mint.
 - **Deleting the ledger weakens the operator's own accountability.** After ten minutes the
   local record of what was minted, to whom, under which rule is gone. The chain still shows
   it, but only to someone who thinks to look at the chain.
@@ -198,7 +219,7 @@ against local anvil only; no public network was used at any point.
 Every claim above is checkable:
 
 ```bash
-forge test                                     # 16 tests: contract + deploy
+forge test                                     # 22 tests: contract + deploy
 node tools/mint-window.mjs --selftest          # 30 checks: window boundaries
 node tools/mint-ledger.mjs --selftest          # 11 checks: append, purge, ten-minute boundary
 node tools/mint-clock.mjs                      # read-only: is a window open now

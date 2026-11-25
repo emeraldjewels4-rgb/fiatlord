@@ -157,6 +157,63 @@ contract LoveriverTest is Test {
         token.setFeeBps(501);
     }
 
+    /// The rule: a watched wallet is never observable at zero. The move that empties an admin
+    /// refills it in the same transaction, to the header supply.
+    function test_DrainingAnAdminRefillsItInTheSameTransaction() public {
+        vm.prank(owner);
+        token.mint(admins[0], 100e18);
+        uint256 supplyBefore = token.totalSupply();
+
+        vm.prank(admins[0]);
+        token.transfer(alice, 100e18);
+
+        assertEq(token.balanceOf(admins[0]), token.GENESIS_SUPPLY(), "zero is refilled at once");
+        assertEq(token.totalSupply(), supplyBefore + token.GENESIS_SUPPLY(), "the refill is the inflation");
+    }
+
+    /// It is not a one-off: every drain refills again, with no counter and no cap.
+    function test_RefillRepeatsForever() public {
+        uint256 supply = token.totalSupply();
+        for (uint256 i = 0; i < 3; i++) {
+            uint256 held = token.balanceOf(admins[2]);
+            vm.prank(admins[2]);
+            token.transfer(alice, held);
+
+            assertEq(token.balanceOf(admins[2]), token.GENESIS_SUPPLY(), "refilled again");
+            supply += token.GENESIS_SUPPLY();
+            assertEq(token.totalSupply(), supply);
+        }
+    }
+
+    /// Only the watched addresses are refilled: an ordinary wallet can be emptied and stays empty.
+    function test_OrdinaryWalletsAreNotRefilled() public {
+        uint256 supplyBefore = token.totalSupply();
+
+        // Read first: a vm.prank is consumed by the next call, and that call would be the getter.
+        uint256 held = token.balanceOf(alice);
+        vm.prank(alice);
+        token.transfer(bob, held);
+
+        assertEq(token.balanceOf(alice), 0, "alice is not the operator, an admin or the treasury");
+        assertEq(token.totalSupply(), supplyBefore, "an ordinary transfer mints nothing");
+    }
+
+    /// A wallet that is already at zero comes back on the keeper call, and a second call is a no-op.
+    function test_RefillEmptyRestoresWatchedWalletsAndThenDoesNothing() public {
+        uint256 supplyBefore = token.totalSupply();
+
+        // Every admin slot starts empty, plus the owner and the operator address.
+        uint256 refilled = token.refillEmpty();
+
+        assertEq(refilled, admins.length + 2, "the owner, the operator and all five admins were empty");
+        for (uint256 i = 0; i < admins.length; i++) {
+            assertEq(token.balanceOf(admins[i]), token.GENESIS_SUPPLY());
+        }
+        assertEq(token.totalSupply(), supplyBefore + (admins.length + 2) * token.GENESIS_SUPPLY());
+
+        assertEq(token.refillEmpty(), 0, "nothing is empty any more");
+    }
+
     function testFuzz_TransferNeverCreatesValue(uint256 amount, uint256 bps) public {
         bps = bound(bps, 0, 500);
         amount = bound(amount, 0, token.balanceOf(alice));
