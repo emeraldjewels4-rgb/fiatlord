@@ -625,6 +625,69 @@ Until that is done, treat `workflow_dispatch` and pushes as the only triggers
 that run, and do not count on the 30-minute tick: a stale deploy looks exactly
 like one nobody checked.
 
+#### Fallback: dispatch the live check from outside GitHub
+
+Until the schedule runs again, something off GitHub has to ask for a run: the
+same `POST` above, every 30 minutes, from a machine that is always on - the one
+already running the `x10_*` maintenance tasks. Nothing in this repository
+changes. No second workflow, no probe, no secret in a file git can see, and no
+deploy: the fallback only asks GitHub for the run the cron no longer starts.
+
+The token is a fine-grained PAT on `emeraldjewels4-rgb/fiatlord` alone, with
+`Actions: read and write` and nothing else, expiring in 90 days rather than the
+year it is allowed. It lives in
+`%USERPROFILE%\.config\fiatlord\live-check-token`, one line, with the file's ACL
+limited to that account. It is not in `.env`, and not in the Task Scheduler
+action: `schtasks` stores its action text in plain text, so the token goes in
+the file and the scheduled command names only the file.
+
+Two files outside the repository, both under `%USERPROFILE%\.config\fiatlord\`:
+
+- `dispatch-live-check.ps1` reads the token, POSTs `{"ref": "main"}` to
+  `/repos/emeraldjewels4-rgb/fiatlord/actions/workflows/live-check.yaml/dispatches`
+  with `Authorization: Bearer <token>`, `Accept: application/vnd.github+json`
+  and `X-GitHub-Api-Version: 2022-11-28`, then appends one line - UTC time and
+  HTTP status - to `%LOCALAPPDATA%\FiatLord\live-check-dispatch.log`.
+- `live-check-token`, the file above.
+
+204 is the only success. 401 is a wrong or expired token, 403 a token without
+`Actions: write`, 404 the repository or workflow name; each one lands in the log
+as a status instead of as a failed task, because a dispatch that is rejected has
+no other symptom.
+
+From `cmd.exe`, as one line (`%USERPROFILE%` is expanded by cmd):
+
+```
+schtasks /create /tn FiatLordLiveCheck /sc minute /mo 30 /st 00:07 /tr "powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File %USERPROFILE%\.config\fiatlord\dispatch-live-check.ps1"
+```
+
+If the home path has a space in it, quote the script path inside `/tr` and
+double those inner quotes. The :07 start keeps the tick off :00/:30, where a
+cron that starts working again would stack a second run on the same minute.
+Dispatches are not deduplicated against scheduled runs, so both would simply
+run; `event` in the run list tells them apart, and nothing has to be deleted
+when the cron comes back.
+
+Whether it is working, in two time frames:
+
+- within a minute of a tick: the log line says 204, and
+  `GET /repos/emeraldjewels4-rgb/fiatlord/actions/runs?event=workflow_dispatch&per_page=1`
+  shows a run whose `created_at` is that tick, `head_branch` is `main` and
+  `actor` is the token's owner. `gh run list --workflow=live-check.yaml` lists
+  the same run.
+- over days: a dispatch run every 30 minutes, with the newest `created_at` never
+  more than about 40 minutes old. A longer gap is the failure to watch for, and
+  it is silent: a rejected dispatch writes its status to the log and nothing
+  else, so an hour-long gap is the signal even while Task Scheduler shows the
+  task green.
+
+A dispatch proves the trigger, not the host. `conclusion: success` on that run
+means the live check passed; `event: workflow_dispatch` with a failing run means
+the fallback works and production does not, which is the alert the schedule was
+there to give. The PAT's expiry is the fallback's own scheduled failure: after
+writing a new token, run the script once by hand and look for the 204 line.
+
+
 ```
 python build/check_live.py                        # the production host
 python build/check_live.py --url http://127.0.0.1:8787
