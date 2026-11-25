@@ -4,7 +4,7 @@ Moving POL and ERC-20 tokens off old Polygon wallets into one destination.
 README-level: `transfer.py` (sweep + reports), `newwallet.py` (keys), `balances.py`
 (quick native check), `test_tool.py` (regression suite).
 
-Use this interpreter â€” the `python3` on PATH is a broken Windows Store stub:
+Use this interpreter — the `python3` on PATH is a broken Windows Store stub:
 
 ```
 PY="/c/Users/suzig/AppData/Local/Programs/Python/Python312/python"
@@ -15,11 +15,11 @@ PY="/c/Users/suzig/AppData/Local/Programs/Python/Python312/python"
 | Step | Command | Why |
 |---|---|---|
 | Back up the destination key | copy `wallet/` to a USB stick or password manager | without it the swept funds are unrecoverable |
-| Encrypt the destination key | `$PY newwallet.py --encrypt wallet/polygon-safe-1.key` | prompts twice, writes `â€¦keystore.json`, deletes the plaintext |
-| Confirm the destination address | `$PY newwallet.py --verify wallet/polygon-safe-1.keystore.json` | prints `0x0638d742â€¦8Ed9e1` |
+| Encrypt the destination key | `$PY newwallet.py --encrypt wallet/polygon-safe-1.key` | prompts twice, writes `…keystore.json`, deletes the plaintext |
+| Confirm the destination address | `$PY newwallet.py --verify wallet/polygon-safe-1.keystore.json` | prints `0x0638d742…8Ed9e1` |
 | (optional) explorer key for token discovery | `printf '%s' 'KEY' > .explorer.key` | must be an **Etherscan V2** key; the old PolygonScan V1 API is retired |
 
-Do not paste a private key or password into a chat, a shell argument or a commit â€”
+Do not paste a private key or password into a chat, a shell argument or a commit —
 anything that lands in a transcript must be treated as burnt.
 
 ## 1. See what you have
@@ -36,18 +36,18 @@ line from a keyless price feed.
 | Line | Meaning |
 |---|---|
 | `native : 12.5 POL ($1.12)` | balance and spot value |
-| `120.44 USDC  $120.40  0x3c49â€¦` | amount, value, contract |
-| `no quote` | no price feed entry â€” the token is not valued, not necessarily worthless |
-| `SKIP: ERC-721 contractâ€¦` | an NFT, not a fungible token; the sweeper will not touch it |
+| `120.44 USDC  $120.40  0x3c49…` | amount, value, contract |
+| `no quote` | no price feed entry — the token is not valued, not necessarily worthless |
+| `SKIP: ERC-721 contract…` | an NFT, not a fungible token; the sweeper will not touch it |
 | `SKIP: symbol advertises a link/claim` | airdrop spam |
-| `SKIP: â€¦ holds 60% of supply - typical airdrop pattern` | unlisted token you own most of |
+| `SKIP: … holds 60% of supply - typical airdrop pattern` | unlisted token you own most of |
 | `note: odd symbol` | advisory only, still sweepable |
 | `value  : $1,234.56` | native + priced tokens for that wallet |
 | `sweep gas: n/a - nothing to move here` | the wallet is empty; nothing to sweep and no gas needed |
-| `total value: â€¦` | across all wallets, with `(excludes N unpriced position(s))` when applicable |
+| `total value: …` | across all wallets, with `(excludes N unpriced position(s))` when applicable |
 | `2 skipped as NFT/spam` | footer count of contracts the sweeper will refuse to touch |
 
-## 2. Rehearse (default â€” nothing is signed for real)
+## 2. Rehearse (default — nothing is signed for real)
 
 ```
 $PY transfer.py --to 0x0638d742492272379aae34FC5607fEd98b8Ed9e1 \
@@ -55,7 +55,7 @@ $PY transfer.py --to 0x0638d742492272379aae34FC5607fEd98b8Ed9e1 \
 ```
 
 Add `--discover-tokens --api-key-file .explorer.key` to include tokens found in
-each wallet's history, or `--tokens 0xâ€¦,0xâ€¦` for specific contracts.
+each wallet's history, or `--tokens 0x…,0x…` for specific contracts.
 
 Source keys can be plaintext (`wallet/old.key`) or encrypted
 (`wallet/old.keystore.json`); `--key-dir` picks up both. The first keystore
@@ -70,12 +70,12 @@ the clear, not even while the sweep runs.
 |---|---|
 | `sources   : N wallet(s)` | wallets being swept |
 | `native balance : 592.7 POL` | as read at plan time |
-| `token holdings : 7` | flagged tokens are listed separately as `x â€¦ SKIP: â€¦` |
+| `token holdings : 7` | flagged tokens are listed separately as `x … SKIP: …` |
 | `would sweep : 592.5 POL native + 7 token(s)` | what will actually move |
-| `! not enough POL for gas` | this wallet is skipped entirely â€” top it up or sweep it manually |
+| `! not enough POL for gas` | this wallet is skipped entirely — top it up or sweep it manually |
 | `dry run: 8 transaction(s) signed and verified, none broadcast` | signatures were produced and sender-checked, then discarded |
-| `would send token â€¦ / native â€¦` | the exact transfers, in order (tokens first, POL last) |
-| `summary written to sweep-â€¦.json` | the plan, for later diffing |
+| `would send token … / native …` | the exact transfers, in order (tokens first, POL last) |
+| `summary written to sweep-….json` | the plan, for later diffing |
 
 Check the destination address on every line before continuing.
 
@@ -86,7 +86,7 @@ $PY transfer.py --to 0x0638d742492272379aae34FC5607fEd98b8Ed9e1 \
                 --keys wallet/old1.key wallet/old2.key --broadcast
 ```
 
-Watch for these first two lines â€” the gate is the tool refusing to send money
+Watch for these first two lines — the gate is the tool refusing to send money
 from a build whose own tests fail:
 
 ```
@@ -94,8 +94,8 @@ checks    : running test_tool.py before touching any funds ...
 checks    : passed (N checks, N passed, 0 failed)
 ```
 
-Then, per transaction: `tx 0xâ€¦  status=0x1`. `status` anything other than `0x1`
-means the transaction reverted â€” its line is reported but the funds did not move,
+Then, per transaction: `tx 0x…  status=0x1`. `status` anything other than `0x1`
+means the transaction reverted — its line is reported but the funds did not move,
 and verification will say so.
 
 ## 4. Read the verification block
@@ -112,15 +112,15 @@ or
 verification: 3 problem(s) after 8 transaction(s)
   ! shortfall on token 12.5 USDC -> dest: expected +12.5 USDC, destination gained 0 USDC
   ! source still holds 592.71986715 POL
-  ! source still holds 9.885164 USDC (0x3c49â€¦)
+  ! source still holds 9.885164 USDC (0x3c49…)
 ```
 
 | Message | What it means | What to do |
 |---|---|---|
 | `destination received all N transfer(s)` | every signed amount arrived | done |
-| `shortfall on â€¦` | the destination gained less than was signed | check that hash on Polygonscan. `status=0x1` for a token means the token's transfer logic did nothing (frozen, fee-on-transfer, blacklist). Nothing to retry until the cause is known |
+| `shortfall on …` | the destination gained less than was signed | check that hash on Polygonscan. `status=0x1` for a token means the token's transfer logic did nothing (frozen, fee-on-transfer, blacklist). Nothing to retry until the cause is known |
 | `source still holds X POL` | the POL leg was smaller than the balance, or skipped | normal when it equals one transfer's gas (~0.0065 POL). Larger: run `--holdings` again and re-sweep |
-| `source still holds N TOKEN` | that token was not swept (blocked, or balance re-read failed) | sweep it explicitly with `--tokens 0xâ€¦` if it is real |
+| `source still holds N TOKEN` | that token was not swept (blocked, or balance re-read failed) | sweep it explicitly with `--tokens 0x…` if it is real |
 | `verification` absent | the run was a dry run, or nothing needed moving | none |
 
 Arrival is checked as `gained >= expected`, so a surplus (someone else sent to
@@ -129,12 +129,12 @@ the same address mid-sweep) is not an error.
 ## 5. After the sweep
 
 1. `$PY transfer.py --holdings 0x0638d742492272379aae34FC5607fEd98b8Ed9e1`
-   â€” confirm the funds are there and readable.
+   — confirm the funds are there and readable.
 2. Re-sweep leftovers if the amount is worth more than the gas.
 3. Retire the old keys: delete `wallet/old*.key` once their wallets are empty and
-   the transaction history no longer matters. Empty â‰  useless: an old key can still
+   the transaction history no longer matters. Empty ≠ useless: an old key can still
    be used to sign messages.
-4. Keep `sweep-â€¦.json` â€” it is the record of what was sent, with hashes.
+4. Keep `sweep-….json` — it is the record of what was sent, with hashes.
 
 ## 6. Paying many people from one wallet
 
@@ -142,7 +142,7 @@ A sweep empties *one* wallet into *one* destination. Paying 169 people a fixed
 amount each is the other shape, and it has its own tool.
 
 1. Put the recipients in [recipients.csv](recipients.csv), one per line:
-   `address,amount,label`. You need **their** addresses â€” the addresses of the
+   `address,amount,label`. You need **their** addresses — the addresses of the
    wallets the recipients control.
 2. Dry run (signs and checks every transfer, sends nothing):
    `$PY payout.py --from wallet/operator.key --file recipients.csv`
@@ -152,7 +152,7 @@ amount each is the other shape, and it has its own tool.
 4. Fund the payer with `total` + gas, then `--broadcast`. The suite must pass
    first, the balance is re-read and the nonce taken from the chain immediately
    before signing, and every recipient is re-checked afterwards for a shortfall.
-5. Keep `payout-â€¦.csv` â€” one row per recipient with the transaction hash. That
+5. Keep `payout-….csv` — one row per recipient with the transaction hash. That
    file is your receipt log; hand it to anyone who asks where the money went.
 
 If every recipient gets the same amount, skip the amount column and pass the
@@ -161,7 +161,7 @@ The total is divided evenly; any leftover wei go one each to the first recipient
 so the amounts add up to exactly the total.
 
 If a payout is interrupted, rerun it with `--resume` pointing at the receipt CSV
-from the interrupted run: `$PY payout.py --from wallet/operator.key --file recipients.csv --resume payout-â€¦.csv --broadcast`.
+from the interrupted run: `$PY payout.py --from wallet/operator.key --file recipients.csv --resume payout-….csv --broadcast`.
 Recipients already marked `0x1` (mined successfully) are skipped. If any row is
 marked `unknown`, the tool refuses to continue: check that transfer on-chain
 first, because it may already have arrived.
@@ -191,25 +191,25 @@ The first failure stops the run, and the exit code says which check that was.
 
 | Exit | State | What it means for a preflight | What to do |
 |---|---|---|---|
-| 0 | `ready` | record, chain, inputs, key and claim all agree â€” `verify` would submit | run `verify` |
+| 0 | `ready` | record, chain, inputs, key and claim all agree — `verify` would submit | run `verify` |
 | 0 | `already` | the record is already verified; nothing would be submitted | nothing |
 | 1 | `no-record` | no record names what to verify | `plan` |
 | 1 | `unreadable` | the RPC did not answer the chain read | `plan` shows which RPC answers |
 | 1 | `mismatch` | record and chain disagree (chainId, code, owner/bridge or admin) | `plan`, then fix the record |
 | 1 | `inputs` | the rebuilt inputs no longer hash to the record's pins: the source moved since the deploy | restore the source revision the record pins |
-| 2 | â€” | usage: `--check-only` on a command other than `verify`, or another bad flag | fix the command |
+| 2 | — | usage: `--check-only` on a command other than `verify`, or another bad flag | fix the command |
 | 3 | `no-key` | no explorer key, so the submission could not be attempted | set `ETHERSCAN_API_KEY` or `--api-key-file` |
 | 6 | `inflight` | a submission for this address was started and never answered | look at the explorer before submitting again |
 | 7 | `busy` | another run holds the claim | wait for that run to finish |
 
-`pending` (5) and `unreached` (6) cannot come out of a preflight â€” nothing is polled
-and nothing is sent â€” but `inflight` still exits 6: something was already sent by an
+`pending` (5) and `unreached` (6) cannot come out of a preflight — nothing is polled
+and nothing is sent — but `inflight` still exits 6: something was already sent by an
 earlier run, and this one will not add to it.
 
 ### Why it writes nothing
 
 - **The record.** No `verificationAttempt`, no `verificationGuid`, no
-  `verifiedOnBasescan`: the file is byte-identical after the run. That is the point â€”
+  `verifiedOnBasescan`: the file is byte-identical after the run. That is the point —
   a marker left by a preflight would make the next real `verify` exit 6 as `inflight`,
   and a guid would make it poll a submission that never happened.
 - **The explorer.** No POST and no "is this already verified" lookup: the run sends no
@@ -230,17 +230,17 @@ earlier run, and this one will not add to it.
 | `refusing to broadcast: the regression suite failed` | fix the code, or run `$PY test_tool.py` to see the failure. There is deliberately no bypass |
 | `refusing to broadcast: the regression suite is missing` | `test_tool.py` was moved or deleted; restore it |
 | `refusing to broadcast: could not run the regression suite` | Python could not start `test_tool.py`; check the interpreter path |
-| `wrong password for â€¦ (nothing was signed)` | that keystore's password was wrong and the run stopped before signing; re-run it |
-| `â€¦ is encrypted: the password must be typed at an interactive terminal` | run it in a real shell window â€” a piped or scripted password is refused |
-| `â€¦ holds neither a 32-byte hex key nor a V3 keystore` | the file is not a key; check you pointed at the right path |
-| `explorer refused the request â€¦ Invalid API Key (#err2)` | the key is not an Etherscan V2 key, or it does not cover Polygon |
+| `wrong password for … (nothing was signed)` | that keystore's password was wrong and the run stopped before signing; re-run it |
+| `… is encrypted: the password must be typed at an interactive terminal` | run it in a real shell window — a piped or scripted password is refused |
+| `… holds neither a 32-byte hex key nor a V3 keystore` | the file is not a key; check you pointed at the right path |
+| `explorer refused the request … Invalid API Key (#err2)` | the key is not an Etherscan V2 key, or it does not cover Polygon |
 | `token discovery needs an explorer API key` | set `POLYGONSCAN_API_KEY` / `ETHERSCAN_API_KEY` or pass `--api-key-file .explorer.key` |
 | `! nonce moved 0 -> 2 since planning` | another transaction went out from that wallet; the tool used the current nonce and carried on |
-| `! <token>: balance moved since planning, sending â€¦` | the amount changed while planning; the fresh amount was signed |
+| `! <token>: balance moved since planning, sending …` | the amount changed while planning; the fresh amount was signed |
 | `- native: not enough left to cover its own gas, POL sweep skipped` | gas ate the remainder; sweep again after the token transfers settle |
 | `! not enough POL for gas - nothing will be sent` | the wallet cannot pay for its own sweep; send it ~0.02 POL first |
 | `all Polygon RPCs failed` | try again; the tool rotates three public endpoints |
-| password prompt refuses to run | it needs an interactive terminal â€” not a pipe, not a script, not a chat |
+| password prompt refuses to run | it needs an interactive terminal — not a pipe, not a script, not a chat |
 
 ## Known limits
 
@@ -249,8 +249,8 @@ earlier run, and this one will not add to it.
   real send is yours. Start with the smallest wallet.
 - **NFTs cannot be enumerated** without an indexer (Blockscout returns 403); the
   report only flags NFT-like contracts among those it examines.
-- **Verification proves arrival, not accounting** â€” see the surplus note in Â§4.
-- Gas moves: at ~310 gwei a plain transfer costs ~0.0065 POL and a token transfer ~0.020 POL (~3Ã— that).
+- **Verification proves arrival, not accounting** — see the surplus note in §4.
+- Gas moves: at ~310 gwei a plain transfer costs ~0.0065 POL and a token transfer ~0.020 POL (~3× that).
 
 ## web9999 maintenance pipeline
 
@@ -261,11 +261,11 @@ names are `x10_agent`, `x10_ai_review`, `x10_autoip` and `x10_mirror_push`.
 
 **Production is the live dashboard**:
 <https://fiatlord-live-crypto-dashboard-9jx1bv.freebuff.site> (site
-`fae2424c-44d4-41e2-8a33-01a01800735c`, environment `8eeb1769-â€¦`). That is the
+`fae2424c-44d4-41e2-8a33-01a01800735c`, environment `8eeb1769-…`). That is the
 only URL that serves the page.
 
 The preview environment is **unpublished**:
-`â€¦-9jx1bv-preview.freebuff.site` answers 404, so do not quote it as a preview of
+`…-9jx1bv-preview.freebuff.site` answers 404, so do not quote it as a preview of
 what is live. Deploying does not publish: a new build can be uploaded to an
 environment and still be offline, so check the environment's `published` flag
 before saying a URL is live, not the fact that a deployment succeeded.
@@ -366,7 +366,7 @@ The Worker serves `GET /api/coinspot/prices` from CoinSpot's public ticker
 (`www.coinspot.com.au/pubapi/v2/latest`, falling back to `/pubapi/latest`), so
 the published page runs on real quotes. It is not the dead `fiatgod.x10.mx` PHP
 host and not the SPA fallback; the dashboard polls the route every 15 s (60 s
-while hidden) and labels the chip `CoinSpot live Â· Ns ago`, and the simulated
+while hidden) and labels the chip `CoinSpot live · Ns ago`, and the simulated
 feed only appears when the route itself fails.
 
 If the ticker cannot be reached, the last good snapshot is replayed with every
@@ -488,12 +488,14 @@ so a typo cannot look like a successful probe.
 snapshot reuse, carried replay, the scheduled write-through, a cold start served
 from storage, the 502 when storage is empty or unreachable, a store that blocks
 forever without delaying the answer, the reported mirror outcome (pending,
-written, unbound, a failing store, and a write the read-back does not confirm),
-the stored-row probe (cold, warm, no row, no binding, stale row, no write,
-no ticker call, the presence and age it reports for both a stale row and an empty
-table, and the refusal of an unknown flag), and the build-identity answer (the
-worker id matching the source, the shell hash, the per-isolate read, and the
-method refusal).
+written, fresh, unbound, a failing store, and a write the read-back does not
+confirm), the stored-row probe (cold, warm, no row, no binding, stale row, no
+write, no ticker call, the presence and age it reports for both a stale row and
+an empty table, and the refusal of an unknown flag), the expired `?diag=cold`
+502 body pinned byte for byte (`stored.present` true, `ageMs` just past the
+window, `cleared`, no prices, SELECT only), and the build-identity answer (the
+worker id matching the source, the shell hash, the `db` binding, the per-isolate
+read, and the method refusal).
 
 #### Build identity: which code and which page a host serves
 
@@ -501,7 +503,7 @@ method refusal).
 build answered. `GET /api/version` does:
 
 ```
-{"ok":true,"worker":"2bee940666de","assets":"d645f7ce2f58"}
+{"ok":true,"worker":"6c6268d1010a","assets":"3cf4bdcd06c0","db":"bound"}
 ```
 
 - `worker` is sha256 of `build/site-fiatlord.worker.js` with that value zeroed
@@ -514,6 +516,11 @@ build answered. `GET /api/version` does:
   names the bundles by content hash, so rebuilding the staged tree moves it even
   when the worker is untouched; `null` means the assets binding could not
   answer.
+- `db` is `bound` or `unbound`: whether the `DB` binding exists at all. A deploy
+  that lost the binding and a deploy that is merely old look identical from the
+  prices route until the upstream dies and there is nothing to carry, and one
+  call distinguishes them. It says nothing about whether the row is readable
+  -- that is what `?diag=stored` and `?diag=cold` answer.
 
 A deployment that is this clone answers the same two values the clone computes,
 which is what makes "is production what I just built" a single request instead

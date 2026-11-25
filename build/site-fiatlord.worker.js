@@ -242,7 +242,7 @@ const SHELL_CACHE = "no-cache";
 // is sha256 of this source with the value zeroed out, restamped by
 // build/worker-id.mjs and asserted by the harness -- a stale stamp fails the
 // staging check rather than shipping.
-const WORKER_ID = "cc9c6315767d";
+const WORKER_ID = "6c6268d1010a";
 const VERSION_PATH = "/api/version";
 
 function toNumber(value) {
@@ -409,7 +409,16 @@ async function versionRoute(request, env) {
   if (request.method !== "GET" && request.method !== "HEAD") {
     return json({ ok: false, error: "method not allowed" }, 405);
   }
-  return json({ ok: true, worker: WORKER_ID, assets: await pageId(env) });
+  return json({
+    ok: true,
+    worker: WORKER_ID,
+    assets: await pageId(env),
+    // Whether the prices database is bound at all. "unbound" is the difference
+    // between a deployment that forgot the binding and one that merely runs an
+    // old build, and from the prices route the two look the same until the
+    // upstream dies and there is nothing to carry.
+    db: env?.DB ? "bound" : "unbound",
+  });
 }
 
 async function pricesRoute(request, env, ctx) {

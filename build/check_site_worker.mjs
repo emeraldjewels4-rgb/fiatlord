@@ -467,6 +467,39 @@ const CHECKED_TICKER = {
 }
 
 {
+  // The same branch the live host answered once the row had aged out, pinned
+  // byte for byte: the cold read found the row, refused it on age, and said so
+  // with its presence and age. The age is just past the window, so the boundary
+  // itself is tested rather than a row that merely looks old.
+  fakeNow = realNow();
+  const staleRow = {
+    fetched_at: fakeNow - 300_325,
+    prices: JSON.stringify({ btc: { last: 90000, bid: 89900, ask: 90100 } }),
+  };
+  const store = storage(staleRow);
+  const worker = await load();
+  const restore = fetching(async () => ticker(CHECKED_TICKER));
+  const { response, body: text } = await call(worker, "/api/coinspot/prices?diag=cold",
+    { env: { ...host({}), DB: store.db } });
+  restore();
+
+  const PINNED = '{"ok":false,"diag":"cold","source":"none","isolate":"cold",'
+    + '"cleared":true,"error":"stored row is older than 5 minutes",'
+    + '"stored":{"present":true,"ageMs":300325},"snapshot":{"state":"idle"}}';
+  eq("an expired cold diag answers 502", response.status, 502);
+  eq("an expired cold diag is the body the live host served", text, PINNED);
+  check("an expired cold diag is JSON", isJson(response),
+    response.headers.get("content-type"));
+  eq("an expired cold diag keeps no-store", response.headers.get("cache-control"), "no-store");
+  check("an expired cold diag reads only",
+    store.calls.every((c) => /^\s*SELECT/i.test(c.sql)),
+    JSON.stringify(store.calls.map((c) => c.sql)));
+  eq("an expired cold diag leaves the row untouched", store.state.row?.fetched_at,
+    staleRow.fetched_at);
+  fakeNow = null;
+}
+
+{
   // Nothing to probe with: the probe has to say which of the two reasons it is,
   // since "no row" and "no database" are different things to fix.
   fakeNow = null;
@@ -942,6 +975,7 @@ const CHECKED_TICKER = {
   eq("version without an assets binding still answers", bare.response.status, 200);
   eq("version without assets reports no page id", bareBody.assets, null);
   eq("version without assets keeps the worker id", bareBody.worker, expected);
+  eq("version without a database says unbound", bareBody.db, "unbound");
 
   const worker = await load();
   const store = storage(null);
@@ -962,6 +996,7 @@ const CHECKED_TICKER = {
   check("the worker id looks like a content id",
     /^[0-9a-f]{12}$/.test(String(body.worker)), JSON.stringify(body.worker));
   eq("version reports the shell's hash", body.assets, shellHash);
+  eq("version reports the database binding", body.db, "bound");
   eq("version does not poll the ticker", upstream, 0);
   eq("version does not touch the database", store.calls.length, 0);
   check("version reads the shell once per isolate",
