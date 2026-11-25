@@ -42,10 +42,14 @@
  *   node tools/topup.mjs --within-window                gate only the full stage
  *   ... add --broadcast and OWNER_KEY, with LOVERIVER_BROADCAST=yes in the environment
  *   ... --confirm-timeout <seconds> bounds the wait for one mint (default 180)
+ *   ... --run-timeout <seconds>    bounds the whole minting loop (default 900)
  *
  * A mint that is sent and never mined used to leave this script waiting with no deadline and
- * nothing to say. It now stops after --confirm-timeout with the hash, so the operator can look
- * up whether it landed instead of guessing.
+ * nothing to say. Two deadlines now exist, because one is not enough: --confirm-timeout bounds
+ * a single mint, and --run-timeout bounds the loop. Without the second, a plan of five mints
+ * could take five times the first before anything was reported, each mint entitled to its own
+ * full wait. Both failures name the transaction and nonce, so the operator can look up what
+ * landed instead of guessing.
  */
 import { JsonRpcProvider, Wallet, Contract, parseUnits, formatUnits, HDNodeWallet, Mnemonic } from 'ethers';
 import { spawnSync } from 'node:child_process';
@@ -138,6 +142,16 @@ if (!/^\d+$/.test(confirmTimeoutArg) || Number(confirmTimeoutArg) === 0) {
   process.exit(2);
 }
 const CONFIRM_TIMEOUT_SECONDS = Number(confirmTimeoutArg);
+
+// The other deadline, for the loop as a whole. Per-mint waits multiply: five mints each entitled
+// to the full timeout is five times as long before anything is reported, and the batch is the
+// unit an operator is waiting on, so the batch gets its own limit.
+const runTimeoutArg = value('run-timeout', '900');
+if (!/^\d+$/.test(runTimeoutArg) || Number(runTimeoutArg) === 0) {
+  console.error(`  --run-timeout ${runTimeoutArg} is not a whole number of seconds greater than zero`);
+  process.exit(2);
+}
+const RUN_TIMEOUT_SECONDS = Number(runTimeoutArg);
 
 // Ten minutes and no more: whatever is already older than the retention is destroyed before
 // this run reads or records anything, so an expired line is never left on disk for the next
@@ -333,17 +347,32 @@ for (const admin of admins) {
   }
 }
 
-/** Raised when a sent mint has no receipt inside the deadline, so it is never confused with a
- *  revert or a transport error: those mean the mint failed, this means nobody knows yet. */
-class ConfirmationTimeout extends Error {}
+/** Raised when a wait runs out. `kind` says which limit ran out - one mint's own budget, or the
+ *  run's - because the two mean different things to whoever reads the log: the first is a
+ *  transaction to go and look up, the second is a batch that will not finish tonight. Neither
+ *  is a revert or a transport error, which mean the mint failed rather than nobody knowing. */
+class WaitExpired extends Error {
+  constructor(kind, seconds) {
+    super(kind === 'run' ? `the run passed ${seconds}s` : `no receipt after ${seconds}s`);
+    this.kind = kind;
+    this.seconds = seconds;
+  }
+}
 
-/** tx.wait() with a deadline, so an unmined mint cannot hold the run open indefinitely. */
+/** tx.wait() bounded by both deadlines: one mint's budget, and whatever is left of the run. The
+ *  smaller wins, and the error says which one it was, so a five-mint plan cannot quietly spend
+ *  five times the per-mint timeout before reporting anything. */
 function confirmWithin(transaction) {
+  const left = runDeadline - Date.now();
+  if (left <= 0) throw new WaitExpired('run', RUN_TIMEOUT_SECONDS);
+  const perMint = CONFIRM_TIMEOUT_SECONDS * 1000;
+  const kind = left < perMint ? 'run' : 'mint';
+  const budget = Math.min(perMint, left);
   let timer;
   const deadline = new Promise((_, reject) => {
     timer = setTimeout(
-      () => reject(new ConfirmationTimeout(`no receipt after ${CONFIRM_TIMEOUT_SECONDS}s`)),
-      CONFIRM_TIMEOUT_SECONDS * 1000
+      () => reject(new WaitExpired(kind, kind === 'run' ? RUN_TIMEOUT_SECONDS : CONFIRM_TIMEOUT_SECONDS)),
+      budget
     );
   });
   return Promise.race([transaction.wait(), deadline]).finally(() => clearTimeout(timer));
@@ -353,29 +382,55 @@ const writer = new Contract(tokenAddress, ABI, owner);
 let nonce = await provider.getTransactionCount(owner.address, 'pending');
 const planned = phases.reduce((sum, phase) => sum + phase.items.length, 0);
 let confirmed = 0;
+// The run's clock starts now, before the first mint, so the budget covers the whole loop rather
+// than each iteration: what an operator is waiting on is the batch, not the individual send.
+const runDeadline = Date.now() + RUN_TIMEOUT_SECONDS * 1000;
+
+/** Both stalls end the run the same way - a named failure, the hash if there is one, and the
+ *  instruction to check before re-running - but they say which deadline ran out. */
+function failStall(error, item, transaction) {
+  const left = planned - confirmed - (transaction ? 1 : 0);
+  if (error.kind === 'run') {
+    console.error(
+      transaction
+        ? `  REFUSED: the run passed --run-timeout ${RUN_TIMEOUT_SECONDS}s while mint ${transaction.hash} ` +
+            `(${formatUnits(item.amount, 18)} LVR to ${item.address}, nonce ${transaction.nonce}) was unconfirmed.`
+        : `  REFUSED: the run passed --run-timeout ${RUN_TIMEOUT_SECONDS}s before mint ` +
+            `${formatUnits(item.amount, 18)} LVR to ${item.address} could be sent.`
+    );
+  } else {
+    console.error(
+      `  REFUSED: mint ${transaction.hash} (${formatUnits(item.amount, 18)} LVR to ${item.address}, ` +
+        `nonce ${transaction.nonce}) is sent but has no receipt after ${CONFIRM_TIMEOUT_SECONDS}s.`
+    );
+  }
+  console.error(
+    `  ${confirmed} of ${planned} mint(s) confirmed and recorded. ` +
+      (transaction
+        ? `This one is unrecorded, and ${left} after it were not sent.`
+        : `${left} were not sent.`)
+  );
+  console.error(
+    '  Look the hash up before re-running: a re-run mints again, and this one may still land.'
+  );
+  process.exit(1);
+}
+
 for (const phase of phases) {
   console.log(`  ${phase.name}`);
   for (const item of phase.items) {
+    // Checked before sending as well as while waiting: a run whose budget is gone must not put
+    // another mint into the mempool on its way out.
+    if (Date.now() >= runDeadline) failStall(new WaitExpired('run', RUN_TIMEOUT_SECONDS), item, null);
     const tx = await writer.mint(item.address, item.amount, { nonce: nonce++ });
     try {
       await confirmWithin(tx);
     } catch (error) {
-      if (!(error instanceof ConfirmationTimeout)) throw error;
+      if (!(error instanceof WaitExpired)) throw error;
       // Not a rollback: the mint is in the mempool and may still be mined. Saying so, with the
       // hash, is the difference between an operator who checks and one who re-runs and mints
       // twice.
-      console.error(
-        `  REFUSED: mint ${tx.hash} (${formatUnits(item.amount, 18)} LVR to ${item.address}, nonce ${tx.nonce}) ` +
-          `is sent but has no receipt after ${CONFIRM_TIMEOUT_SECONDS}s.`
-      );
-      console.error(
-        `  ${confirmed} of ${planned} mint(s) confirmed and recorded. This one is unrecorded, and ` +
-          `${planned - confirmed - 1} after it were not sent.`
-      );
-      console.error(
-        '  Look the hash up before re-running: a re-run mints again, and this one may still land.'
-      );
-      process.exit(1);
+      failStall(error, item, tx);
     }
     confirmed++;
     // One line per mint that actually happened, written only after it is mined.
