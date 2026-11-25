@@ -2,7 +2,16 @@
 pragma solidity 0.8.24;
 
 import {Script, console} from "forge-std/Script.sol";
-import {Loveriver, LVR_OPERATOR} from "../src/Loveriver.sol";
+import {
+    Loveriver,
+    LVR_OPERATOR,
+    LVR_FEE_WALLET,
+    LVR_ADMIN_1,
+    LVR_ADMIN_2,
+    LVR_ADMIN_3,
+    LVR_ADMIN_4,
+    LVR_ADMIN_5
+} from "../src/Loveriver.sol";
 
 /**
  * Deploys Loveriver and mints the initial supply, in one broadcast.
@@ -15,15 +24,20 @@ import {Loveriver, LVR_OPERATOR} from "../src/Loveriver.sol";
  *
  * WHO HOLDS AUTHORITY IS NOT AN ENVIRONMENT VARIABLE
  *
- * The owner, all five administrators and the fee wallet are one address: LVR_OPERATOR,
- * fixed in the token's source. Nothing here reads a role from the environment, and a role
- * variable that names a different address is refused rather than ignored - a deploy that
- * quietly disregarded a name the caller typed is worse than one that stops.
+ * The roles are fixed in the token's source, and they are three separate sets of keys:
  *
- * The consequence is that the deploy must be signed by that operator key: mint() is
- * owner-only and the initial supply is minted in this same broadcast, so a key that is not
- * the operator's cannot complete it. That is the intent - deployer, owner, administrators and
- * treasury are the same address - and the roles can still be re-delegated afterwards with
+ *   owner       LVR_OPERATOR                the mint authority
+ *   fee wallet  LVR_FEE_WALLET              where fees accrue
+ *   admins      LVR_ADMIN_1 .. LVR_ADMIN_5   distribution, fee and rotation rights
+ *
+ * Nothing here reads a role from the environment, and a role variable that names a different
+ * address is refused rather than ignored - a deploy that quietly disregarded a name the
+ * caller typed is worse than one that stops. Each variable is refused against the constant
+ * for its own role, so setting ADMIN_1 to the operator is an error, not a coincidence.
+ *
+ * The consequence is that the deploy must be signed by the operator key: mint() is owner-only
+ * and the initial supply is minted in this same broadcast, so a key that is not the
+ * operator's cannot complete it. The roles can still be re-delegated afterwards with
  * transferOwnership() and setAdmin().
  *
  * Optional environment:
@@ -90,30 +104,45 @@ contract Deploy is Script {
     /// Separated from the environment read on purpose. `vm.setEnv` changes process state that
     /// forge shares across tests and runs tests in parallel, so two tests that set different
     /// ADMIN_1 values race. Pinning the rule here keeps the test honest and independent.
-    function roleRefusal(string memory name, address named) public pure returns (string memory) {
-        if (named == LVR_OPERATOR) return "";
+    /// `expectedName` is the constant the role is fixed to, so the sentence says which role the
+    /// address failed rather than naming one address for every role.
+    function roleRefusal(
+        string memory name,
+        address named,
+        string memory expectedName,
+        address expected
+    ) public pure returns (string memory) {
+        if (named == expected) return "";
         return
             string.concat(
                 name,
-                " names an address that is not LVR_OPERATOR; roles are fixed in the token, not in the environment"
+                " names an address that is not ",
+                expectedName,
+                "; roles are fixed in the token, not in the environment"
             );
     }
 
-    /// A role variable set to anything but the operator stops the deploy. Ignoring it would
-    /// leave the caller believing a wallet they named holds a role it does not have.
-    function _refuseForeign(string memory name) private view {
-        string memory refusal = roleRefusal(name, vm.envOr(name, LVR_OPERATOR));
+    /// A role variable set to anything but the address the token fixes for that role stops the
+    /// deploy. Ignoring it would leave the caller believing a wallet they named holds a role it
+    /// does not have.
+    function _refuse(string memory name, string memory expectedName, address expected) private view {
+        string memory refusal = roleRefusal(name, vm.envOr(name, expected), expectedName, expected);
         require(bytes(refusal).length == 0, refusal);
     }
 
     function run() external returns (Loveriver token) {
         address op = LVR_OPERATOR;
+        address feeWallet = LVR_FEE_WALLET;
+        address[5] memory admins = [LVR_ADMIN_1, LVR_ADMIN_2, LVR_ADMIN_3, LVR_ADMIN_4, LVR_ADMIN_5];
 
-        _refuseForeign("OWNER");
-        _refuseForeign("FEE_WALLET");
-        for (uint256 i = 1; i <= 5; i++) _refuseForeign(string.concat("ADMIN_", vm.toString(i)));
+        _refuse("OWNER", "LVR_OPERATOR", op);
+        _refuse("FEE_WALLET", "LVR_FEE_WALLET", feeWallet);
+        _refuse("ADMIN_1", "LVR_ADMIN_1", admins[0]);
+        _refuse("ADMIN_2", "LVR_ADMIN_2", admins[1]);
+        _refuse("ADMIN_3", "LVR_ADMIN_3", admins[2]);
+        _refuse("ADMIN_4", "LVR_ADMIN_4", admins[3]);
+        _refuse("ADMIN_5", "LVR_ADMIN_5", admins[4]);
 
-        address[5] memory admins = [op, op, op, op, op];
         uint256 feeBps = vm.envOr("FEE_BPS", uint256(100));
         uint256 initialSupply = vm.envOr("INITIAL_SUPPLY", uint256(699_999_999_999)) * 1e18;
 
@@ -126,13 +155,13 @@ contract Deploy is Script {
         // is owner-only, and the owner is the constant. A foreign key fails to sign here
         // instead of deploying a token it cannot finish setting up.
         vm.startBroadcast(op);
-        token = Deployer.deploy(op, admins, op, feeBps, initialSupply, mintTo);
+        token = Deployer.deploy(op, admins, feeWallet, feeBps, initialSupply, mintTo);
         vm.stopBroadcast();
 
         console.log("Loveriver deployed at", address(token));
         console.log("  operator   ", op);
         console.log("  owner      ", op);
-        console.log("  fee wallet ", op);
+        console.log("  fee wallet ", feeWallet);
         console.log("  fee bps    ", feeBps);
         console.log("  minted     ", initialSupply);
         console.log("  minted to  ", mintTo);

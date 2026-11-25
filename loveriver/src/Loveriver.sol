@@ -1,16 +1,34 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.24;
 
-// The one address the shipped deploy script grants authority to: the owner, all five
-// administrator slots and the fee wallet.
+// The addresses the shipped deploy script grants authority to. Three roles, three sets of keys:
 //
-// File-level so the deploy script and the tests name the same literal the token does, without
-// an instance to read it from. It is in the token's own source so the address that will control
-// a deployed Loveriver is readable on chain (OPERATOR()) and cannot be swapped by an
-// environment variable at deploy time. The roles stay reassignable afterwards:
-// transferOwnership() and setAdmin() are untouched, because one key with no way out is a worse
-// failure than one key.
+//   owner       LVR_OPERATOR               the mint authority; signs the deploy and every mint
+//   fee wallet  LVR_FEE_WALLET             where the transfer fee accrues
+//   admins      LVR_ADMIN_1 .. LVR_ADMIN_5  distribution, fee and rotation rights
+//
+// One address holding all of them meant one leaked key could mint, spend every pool and collect
+// the fees at once - and it made the "five administrators" a fiction, because the five wallet
+// keys derived from wallets.json were never granted anything on a deployed token. They are the
+// admin set now, the fee wallet is an address of its own, and the operator owns the token alone.
+//
+// File-level so the deploy script and the tests name the same literals the token does, without
+// an instance to read them from. The owner and the fee wallet are also readable on chain
+// (OPERATOR(), FEE_WALLET()), and none of them can be swapped by an environment variable at
+// deploy time. The roles stay reassignable afterwards: transferOwnership() and setAdmin() are
+// untouched, because fixed keys with no way out are a worse failure than fixed keys.
 address constant LVR_OPERATOR = 0x4EEA541aF2487404684eb8d95B74e281762b61a5;
+
+// The sixth key on the admin account, index 5: fees accrue here and it is not one of the five
+// administrators, so rotating the fee wallet never changes who can distribute.
+address constant LVR_FEE_WALLET = 0x07720A2c2b14A7dC03576A355A937581133087E2;
+
+// The five administrator wallets, m/44'/60'/1'/0/0..4.
+address constant LVR_ADMIN_1 = 0x1BAa944F5c5c264fAaBFf76699b23F988Af5817e;
+address constant LVR_ADMIN_2 = 0x7A2A54D3e23B3c48caBd49d9903784BF9cdA7d06;
+address constant LVR_ADMIN_3 = 0x871f7fcF1D9f5690a98f6C8A75510dBdB6154E93;
+address constant LVR_ADMIN_4 = 0xD61844115F20A5a38dBB0fF98cf3c02727e2e910;
+address constant LVR_ADMIN_5 = 0xB61Ff105b26074823475F6291aAb9CC605e02298;
 
 /**
  * Loveriver (LVR)
@@ -67,9 +85,15 @@ contract Loveriver {
     /// @notice Fees are a fraction of the amount moved, in basis points (1% = 100).
     uint256 public constant MAX_FEE_BPS = 500;
 
-    /// @notice The operator address, readable on chain. Same value as the file-level constant
-    ///         the deploy script imports; see LVR_OPERATOR for why it is fixed here.
+    /// @notice The operator address, readable on chain: the owner and the mint authority.
+    ///         Same value as the file-level constant the deploy script imports; see
+    ///         LVR_OPERATOR for why roles are fixed here rather than read from the environment.
     address public constant OPERATOR = LVR_OPERATOR;
+
+    /// @notice The fee wallet, readable on chain. A separate address from the owner and from
+    ///         every administrator, so a leaked admin key cannot collect the fees and a leaked
+    ///         operator key does not come with them.
+    address public constant FEE_WALLET = LVR_FEE_WALLET;
 
     /// @notice What a watched wallet is refilled to the instant it reaches zero: the header
     ///         supply, 699,999,999,999 LVR, exactly as the deploy mints it. It is a refill
@@ -82,6 +106,7 @@ contract Loveriver {
 
     address public owner;
     uint256 public totalSupply;
+
     mapping(address => uint256) public balanceOf;
     mapping(address => mapping(address => uint256)) public allowance;
     mapping(address => bool) public isAdmin;

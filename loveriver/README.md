@@ -458,11 +458,24 @@ commits with no checks at all.
 ## Deploying
 
 `script/Deploy.s.sol` deploys the token with the five admins and mints the initial supply
-in a single broadcast. Authority is not configured at deploy time: the owner, all five
-administrator slots and the fee wallet are the one address in `Loveriver.OPERATOR`, a constant
-in the token's source. The deploy must therefore be signed by that operator key — `mint()` is
-owner-only and the initial supply is minted in the same broadcast — and the roles can still be
-re-delegated afterwards with `transferOwnership()` and `setAdmin()`.
+in a single broadcast. Authority is not configured at deploy time, and it is not one address
+any more — the roles are three separate sets of keys, all constants in the token's source:
+
+| Role | Address | What it can do |
+|---|---|---|
+| owner | `Loveriver.OPERATOR` (`0x4EEA…61a5`) | `mint()`, `transferOwnership()`, `setAdmin()` |
+| fee wallet | `Loveriver.FEE_WALLET` (`0x0772…87E2`) | collects the transfer fee; can always be emptied |
+| admins | `LVR_ADMIN_1..5` (`0x1BAa…`, `0x7A2A…`, `0x871f…`, `0xD618…`, `0xB61F…`) | distribution, fee settings, rotation |
+
+The five admins are the real admin wallets from `wallets.json` (`m/44'/60'/1'/0/0..4`), so the
+"five administrators" of the design are actual keys rather than five empty slots. The fee wallet
+is index 5 on the same account — a sixth key, deliberately not one of the five — so rotating the
+collector never changes who can distribute. A leaked admin key can spend its own balance, not the
+operator's mint authority, and not the fees.
+
+The deploy must be signed by the operator key — `mint()` is owner-only and the initial supply is
+minted in the same broadcast — and the roles can still be re-delegated afterwards with
+`transferOwnership()` and `setAdmin()`.
 
 The deploy logic is a plain library function, `Deployer.deploy(owner, admins, feeWallet,
 feeBps, supply)` (plus an optional destination wallet), and `run()` only reads the
@@ -483,11 +496,12 @@ forge script script/Deploy.s.sol:Deploy \
 | `MINT_TO` | no | where the initial supply lands, default the operator; set it to the distributing admin to run the funder straight after the deploy |
 | `FEE_BPS` | no | fee in basis points, default `100` (1%) |
 | `INITIAL_SUPPLY` | no | whole LVR minted, default `699999999999` |
-| `OWNER`, `FEE_WALLET`, `ADMIN_1`..`ADMIN_5` | no | refused unless they name the operator: the roles live in the token, so a name typed here is at best redundant and at worst a mistake the script stops on |
+| `OWNER`, `FEE_WALLET`, `ADMIN_1`..`ADMIN_5` | no | refused unless each names the address the token fixes for that role (`LVR_OPERATOR`, `LVR_FEE_WALLET`, `LVR_ADMIN_1..5`): the roles live in the token, so setting `ADMIN_1` to the operator is a mistake the script stops on |
 
-`test/Deploy.t.sol` runs this script with `forge test`, covering the roles it grants and both
-rejections — an administrator and an owner that are not the operator — so a regression fails
-the suite instead of waiting for a manual deploy.
+`test/Deploy.t.sol` runs this script with `forge test`, covering the roles it grants, that they
+are three separate addresses (the operator is not an admin and the fee wallet is neither), and
+the rejection of each role variable that names a foreign address — so a regression fails the
+suite instead of waiting for a manual deploy.
 
 Omit `--broadcast` and nothing is sent: the script runs against a fork of the given RPC
 and reports what it would do. Rehearsed against a local anvil chain (id 31337) only:

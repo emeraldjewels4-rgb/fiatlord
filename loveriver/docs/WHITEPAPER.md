@@ -34,11 +34,12 @@ summarises where the analogy holds and where it breaks.
 | Standard | ERC-20 interface (`transfer`, `approve`, `transferFrom`, balances, allowances) |
 | Supply | uncapped; `mint(to, amount)` is owner-only |
 | Fee | `feeBps`, at most 500 (5%), charged in LVR on transfer |
-| Fee wallet | one address; transfers *out* of it are free so it can be emptied |
+| Fee wallet | one address of its own (`LVR_FEE_WALLET`, admin-account index 5); transfers *out* of it are free so it can be emptied |
 | Fee reduction | `burnFees()` — the only path that lowers `totalSupply` |
 | Rotation | `rotateFeeWallet(next)` refuses while the current wallet holds tokens |
 | Distribution | `distributeRange(to, perWallet, start, end)`, admin-only, no fee |
-| Admins | five addresses fixed at deploy; they are the distribution pool |
+| Owner | `LVR_OPERATOR` — the mint authority, and not an administrator |
+| Admins | `LVR_ADMIN_1..5` — the five real admin wallets, fixed in the token; the distribution pool |
 
 22 Foundry tests cover the mint, the fee ceiling, the rotation precondition, the burn, range
 fills, the automatic refill and the deploy script.

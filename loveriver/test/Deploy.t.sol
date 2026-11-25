@@ -3,7 +3,16 @@ pragma solidity 0.8.24;
 
 import {Test} from "forge-std/Test.sol";
 import {Deploy, Deployer} from "../script/Deploy.s.sol";
-import {Loveriver, LVR_OPERATOR} from "../src/Loveriver.sol";
+import {
+    Loveriver,
+    LVR_OPERATOR,
+    LVR_FEE_WALLET,
+    LVR_ADMIN_1,
+    LVR_ADMIN_2,
+    LVR_ADMIN_3,
+    LVR_ADMIN_4,
+    LVR_ADMIN_5
+} from "../src/Loveriver.sol";
 
 /**
  * Tests the deploy script.
@@ -142,54 +151,75 @@ contract DeployTest is Test {
         assertEq(token.balanceOf(RECIPIENT), 6.495 ether, "the recipient gets the amount minus the fee");
     }
 
-    /// Who holds authority is no longer read from the environment: the owner, every admin slot
-    /// and the fee wallet are LVR_OPERATOR. What `run()` still has to get right is that it
-    /// grants all of them to that one address and reads only the policy knobs outward.
-    function test_RunGrantsEveryRoleToTheOperator() public {
-        address op = LVR_OPERATOR;
-        // Named here on purpose: these are the variables that used to pick the roles, and the
-        // set of them that still works is exactly the set that names the operator.
-        vm.setEnv("OWNER", vm.toString(op));
-        vm.setEnv("FEE_WALLET", vm.toString(op));
-        vm.setEnv("ADMIN_1", vm.toString(op));
-        vm.setEnv("ADMIN_2", vm.toString(op));
-        vm.setEnv("ADMIN_3", vm.toString(op));
-        vm.setEnv("ADMIN_4", vm.toString(op));
-        vm.setEnv("ADMIN_5", vm.toString(op));
+    /// Who holds authority is not read from the environment, and it is no longer one address:
+    /// the operator owns the token, the fee wallet is an address of its own, and the five
+    /// administrator slots are the five real admin wallets.
+    function test_RunGrantsEachRoleToItsOwnAddress() public {
+        vm.setEnv("OWNER", vm.toString(LVR_OPERATOR));
+        vm.setEnv("FEE_WALLET", vm.toString(LVR_FEE_WALLET));
+        vm.setEnv("ADMIN_1", vm.toString(LVR_ADMIN_1));
+        vm.setEnv("ADMIN_2", vm.toString(LVR_ADMIN_2));
+        vm.setEnv("ADMIN_3", vm.toString(LVR_ADMIN_3));
+        vm.setEnv("ADMIN_4", vm.toString(LVR_ADMIN_4));
+        vm.setEnv("ADMIN_5", vm.toString(LVR_ADMIN_5));
         vm.setEnv("FEE_BPS", "250");
         vm.setEnv("INITIAL_SUPPLY", "1000");
 
         Loveriver token = new Deploy().run();
 
-        assertEq(uint256(uint160(token.owner())), uint256(uint160(op)), "the operator owns the token");
-        assertEq(uint256(uint160(token.feeWallet())), uint256(uint160(op)), "the operator collects the fees");
-        assertTrue(token.isAdmin(op), "the operator is an administrator, from any slot");
+        assertEq(token.owner(), LVR_OPERATOR, "the operator owns the token");
+        assertEq(token.feeWallet(), LVR_FEE_WALLET, "the fee wallet is its own address");
+        assertEq(token.OPERATOR(), LVR_OPERATOR, "the owner is readable on chain");
+        assertEq(token.FEE_WALLET(), LVR_FEE_WALLET, "the fee wallet is readable on chain");
+
+        assertTrue(token.isAdmin(LVR_ADMIN_1), "admin 1");
+        assertTrue(token.isAdmin(LVR_ADMIN_2), "admin 2");
+        assertTrue(token.isAdmin(LVR_ADMIN_3), "admin 3");
+        assertTrue(token.isAdmin(LVR_ADMIN_4), "admin 4");
+        assertTrue(token.isAdmin(LVR_ADMIN_5), "admin 5");
+
+        // The split, not just the assignments: the owner is not an administrator and the fee
+        // wallet is neither, so one key no longer holds all three roles.
+        assertFalse(token.isAdmin(LVR_OPERATOR), "the operator is the owner, not an admin slot");
+        assertFalse(token.isAdmin(LVR_FEE_WALLET), "the fee wallet holds no distribution rights");
+
         assertEq(token.feeBps(), 250, "FEE_BPS is still read from the environment");
         assertEq(token.totalSupply(), 1000 ether, "INITIAL_SUPPLY is still read from the environment");
-        assertEq(token.balanceOf(op), 1000 ether, "by default the supply lands on the operator");
+        assertEq(token.balanceOf(LVR_OPERATOR), 1000 ether, "by default the supply lands on the owner");
     }
 
-    /// A role variable naming somebody else is refused, and the sentence says which variable.
+    /// A role variable naming somebody else is refused, and the sentence names the role it
+    /// failed - checked against that role's own constant, not against one operator address.
     /// Checked through the pure rule rather than through the environment: forge shares
     /// `vm.setEnv` across tests and runs them in parallel, so a test that sets ADMIN_1 to a
     /// foreign address is a race with every other test in this file.
     function test_RoleRefusalNamesTheForeignVariable() public {
         Deploy deployer = new Deploy();
 
-        assertEq(deployer.roleRefusal("ADMIN_1", ADMIN_1), "ADMIN_1 names an address that is not LVR_OPERATOR; roles are fixed in the token, not in the environment");
-        assertEq(deployer.roleRefusal("OWNER", ADMIN_2), "OWNER names an address that is not LVR_OPERATOR; roles are fixed in the token, not in the environment");
         assertEq(
-            deployer.roleRefusal("FEE_WALLET", address(0)),
-            "FEE_WALLET names an address that is not LVR_OPERATOR; roles are fixed in the token, not in the environment"
+            deployer.roleRefusal("ADMIN_1", ADMIN_1, "LVR_ADMIN_1", LVR_ADMIN_1),
+            "ADMIN_1 names an address that is not LVR_ADMIN_1; roles are fixed in the token, not in the environment"
         );
+        assertEq(
+            deployer.roleRefusal("OWNER", ADMIN_2, "LVR_OPERATOR", LVR_OPERATOR),
+            "OWNER names an address that is not LVR_OPERATOR; roles are fixed in the token, not in the environment"
+        );
+        assertEq(
+            deployer.roleRefusal("FEE_WALLET", address(0), "LVR_FEE_WALLET", LVR_FEE_WALLET),
+            "FEE_WALLET names an address that is not LVR_FEE_WALLET; roles are fixed in the token, not in the environment"
+        );
+        // The operator is a valid OWNER and an invalid ADMIN: the roles are separate now.
+        assertTrue(bytes(deployer.roleRefusal("ADMIN_1", LVR_OPERATOR, "LVR_ADMIN_1", LVR_ADMIN_1)).length > 0);
     }
 
-    /// And the operator itself is accepted, which is what makes the check a check rather than a
+    /// Each role's own address is accepted, which is what makes the check a check rather than a
     /// refusal of everything.
-    function test_RoleRefusalAcceptsTheOperator() public {
+    function test_RoleRefusalAcceptsEachRolesOwnAddress() public {
         Deploy deployer = new Deploy();
 
-        assertEq(deployer.roleRefusal("ADMIN_1", LVR_OPERATOR), "");
-        assertEq(deployer.roleRefusal("OWNER", LVR_OPERATOR), "");
+        assertEq(deployer.roleRefusal("OWNER", LVR_OPERATOR, "LVR_OPERATOR", LVR_OPERATOR), "");
+        assertEq(deployer.roleRefusal("FEE_WALLET", LVR_FEE_WALLET, "LVR_FEE_WALLET", LVR_FEE_WALLET), "");
+        assertEq(deployer.roleRefusal("ADMIN_1", LVR_ADMIN_1, "LVR_ADMIN_1", LVR_ADMIN_1), "");
+        assertEq(deployer.roleRefusal("ADMIN_5", LVR_ADMIN_5, "LVR_ADMIN_5", LVR_ADMIN_5), "");
     }
 }
