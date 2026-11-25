@@ -593,6 +593,34 @@ problem with a workflow file, so renaming, editing or re-adding probes tests
 nothing: every scheduled workflow here is affected, and the fix has to be at the
 repository or account level, or by triggering runs from outside GitHub.
 
+What is ruled out, from the repository itself: it is not a fork (`fork: false`,
+`parent: null`), not archived and not disabled, the file sits on the default
+branch (`main`, the only branch a schedule is read from), the workflow state is
+`active`, and the repo is public, so the private-repo scheduling rules and
+billing do not apply. The cron line is ordinary syntax, and the 60-day
+inactivity disable only reaches a repository with no activity, which this one
+has.
+
+That leaves one candidate to check first: a schedule runs as the account that
+added it, `emeraldjewels4-rgb` here, and that account is about a month old.
+GitHub drops schedule events for an account that is flagged, restricted or
+unverified while still listing the workflow as `active`, so the account is the
+one thing a check of the repository cannot see. Behind it, scheduled runs are
+best-effort on a shared queue: tens of minutes of delay is normal, thirty missed
+ticks in a row is not.
+
+A token would settle it, in this order:
+
+- `GET /repos/emeraldjewels4-rgb/fiatlord/actions/permissions` and
+  `.../actions/permissions/workflow`: whether Actions and the default token
+  scopes are what the workflow assumes.
+- `GET .../actions/workflows?per_page=100` (`gh workflow list --all`): `state`
+  and `disabled_inactivity` on every workflow, which the anonymous view omits.
+- `POST .../actions/workflows/live-check.yaml/dispatches {"ref": "main"}`: that
+  a run starts today by dispatch, so the schedule is the only broken trigger.
+- `PUT .../actions/workflows/live-check.yaml/enable`: a 204 and still no
+  schedule run points at the account rather than the workflow.
+
 Until that is done, treat `workflow_dispatch` and pushes as the only triggers
 that run, and do not count on the 30-minute tick: a stale deploy looks exactly
 like one nobody checked.
