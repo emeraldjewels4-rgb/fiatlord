@@ -837,9 +837,13 @@ bundle can be fetched and staged.
 ### Drift reporting: x10_agent
 
 `x10_agent` **reports drift and never repairs it**. On each scheduled pass its
-`check_drift()` compares each local `build/web/*.php` file with the deployed
-copy. A missing or changed file is a fault: the output says `FAULT ...; no
-upload`, the check returns `False`, and the task exits non-zero.
+`check_drift()` compares every file `x10_deploy` manages with the deployed copy:
+`build/web/*.php`, and the page served at `/`, whose tracked copy is
+`build/web/web9999/index.html` against the host's
+`public_html/web9999/index.html`. The page is in `x10_deploy.PAGES` precisely
+because `push` used to skip it, so a hand edit on the server left no trace. A
+missing or changed file is a fault: the output says `FAULT ...; no upload`, the
+check returns `False`, and the task exits non-zero.
 
 It does not call `x10_deploy.push()`, does not write to `public_html`, and does
 not restore a previous page, API file, or root PHP file. Publishing stays a

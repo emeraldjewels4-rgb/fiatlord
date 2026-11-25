@@ -5,9 +5,11 @@
 
 What it does on every pass:
 
-  1. drift   - compares each build/web/*.php with the deployed copy. A missing
-               or different file is reported as a fault; the agent never
-               uploads, so a scheduled pass cannot overwrite a live fix.
+  1. drift   - compares every file x10_deploy manages (build/web/*.php and the
+               pages in x10_deploy.PAGES, which includes the page served at /)
+               with the deployed copy. A missing or different file is reported
+               as a fault; the agent never uploads, so a scheduled pass cannot
+               overwrite a live fix.
   2. endpoints - GETs x10_status.php and POSTs web9999_health, expecting "01".
   3. chain   - calls totalSupply() on the mined contract through web9999.php and
                compares it with the recorded rewards.

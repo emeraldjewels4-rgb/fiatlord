@@ -38,6 +38,12 @@
 !/build/web/assets/index-6o21nwvo.css
 !/build/web/assets/index-87a7946b18f5.js
 
+# The deployed page served at /. x10_deploy compares this copy with the host and
+# uploads it on push, so a change to the live page starts here as a reviewable
+# diff. The directory has to be unignored before the file inside it can be.
+!/build/web/web9999/
+!/build/web/web9999/index.html
+
 # The maintenance pipeline, and the tests that hold its review and drift paths to
 # drafting only. A test file on its own is not coverage: each one imports the module
 # it covers, so a clone without these four would stop at collection. Credentials are

@@ -7,9 +7,10 @@
     python x10_deploy.py verify   # fetch the live endpoints and report
 
 Every action is recorded in the site database's web9999_deploys table, so it
-keeps the history of what was uploaded, when, and with which hash. Files in
-build/web and the API source tree are managed; nothing else in public_html is
-touched. API changes are staged and swapped as one directory.
+keeps the history of what was uploaded, when, and with which hash. The top-level
+build/web/*.php files, the pages listed in PAGES and the API source tree are
+managed; nothing else in public_html is touched. API changes are staged and
+swapped as one directory.
 
 Credentials come from .env (X10_CPANEL_TOKEN and the X10_DB_* set).
 """
@@ -45,6 +46,20 @@ API_REMOTE = x10_fuse.env("X10_API_REMOTE", _derived(REMOTE_DIR, "api", "web9999
 API_WORK_DIR = x10_fuse.env("X10_API_WORK_DIR", _derived(_HOME, ".x10-api-deploy"))
 LIVE = x10_fuse.env("X10_LIVE_URL", "https://fiatgod.x10.mx")
 DB = x10_fuse.env("X10_SITE_DB")
+
+# Pages that live in a subdirectory, so the top-level *.php set never sees them.
+# "/" is served from public_html/web9999/index.html: without an entry here a
+# hand edit on the host was invisible to status and to x10_agent's drift check.
+# Each page keeps a tracked local copy, so a change to it is a diff to review
+# rather than an edit made on the server. `url` is only for verify.
+PAGES = (
+    {
+        "file": "web9999/index.html",
+        "remote_dir": _derived(REMOTE_DIR, "web9999"),
+        "local": os.path.join(WEB, "web9999", "index.html"),
+        "url": "/",
+    },
+)
 
 
 def _require_deployment():
@@ -98,6 +113,12 @@ def call_api2(module, function, **params):
     return result.get("data")
 
 
+def _read(path):
+    with open(path, "rb") as fh:
+        raw = fh.read()
+    return {"bytes": raw, "sha256": hashlib.sha256(raw).hexdigest(), "path": path}
+
+
 def local_files():
     if not os.path.isdir(WEB):
         raise SystemExit(f"no {WEB}")
@@ -105,19 +126,37 @@ def local_files():
     for name in sorted(os.listdir(WEB)):
         path = os.path.join(WEB, name)
         if os.path.isfile(path) and name.endswith(".php"):
-            with open(path, "rb") as fh:
-                raw = fh.read()
-            out[name] = {
-                "bytes": raw,
-                "sha256": hashlib.sha256(raw).hexdigest(),
-                "path": path,
-            }
+            out[name] = _read(path)
     return out
 
 
-def remote_text(name):
+def managed_files():
+    """Everything status, push and pull handle, keyed by the name history records.
+
+    A page keeps `remote_dir` and `remote_file` separately: its local copy sits
+    in a directory of the same name, while the file it replaces lives in the
+    remote subdirectory named by PAGES.
+    """
+    out = {}
+    for name, info in local_files().items():
+        out[name] = dict(info, remote_dir=REMOTE_DIR, remote_file=name, url=f"/{name}")
+    for page in PAGES:
+        if not os.path.isfile(page["local"]):
+            raise SystemExit(
+                f"no {page['local']}: the tracked copy is what {page['file']} is deployed from, so nothing runs without it"
+            )
+        out[page["file"]] = dict(
+            _read(page["local"]),
+            remote_dir=page["remote_dir"],
+            remote_file=os.path.basename(page["file"]),
+            url=page["url"],
+        )
+    return out
+
+
+def remote_text(name, remote_dir=None):
     try:
-        data = call("Fileman", "get_file_content", dir=REMOTE_DIR, file=name)
+        data = call("Fileman", "get_file_content", dir=remote_dir or REMOTE_DIR, file=name)
     except (urllib.error.HTTPError, RuntimeError):
         return None
     if isinstance(data, dict):
@@ -127,8 +166,8 @@ def remote_text(name):
 
 def compare():
     rows = []
-    for name, info in local_files().items():
-        text = remote_text(name)
+    for name, info in managed_files().items():
+        text = remote_text(info["remote_file"], info["remote_dir"])
         if text is None:
             state = "missing"
             remote_digest = None
@@ -171,16 +210,17 @@ def record(file_name, action, sha256, size):
 
 def push(force=False):
     changed = 0
-    for name, info in local_files().items():
-        row = next((r for r in compare() if r["file"] == name), None)
+    states = {row["file"]: row for row in compare()}
+    for name, info in managed_files().items():
+        row = states.get(name)
         if row and row["state"] == "same" and not force:
             print(f"  {name}: already up to date")
             continue
         call(
             "Fileman",
             "save_file_content",
-            dir=REMOTE_DIR,
-            file=name,
+            dir=info["remote_dir"],
+            file=info["remote_file"],
             content=info["bytes"].decode("utf-8"),
             **{"from_charset": "UTF-8", "to_charset": "UTF-8"},
         )
@@ -323,12 +363,13 @@ def push_api(force=False):
 
 def pull():
     os.makedirs(REMOTE_COPY, exist_ok=True)
-    for name in local_files():
-        text = remote_text(name)
+    for name, info in managed_files().items():
+        text = remote_text(info["remote_file"], info["remote_dir"])
         if text is None:
             print(f"  {name}: not on the host")
             continue
-        path = os.path.join(REMOTE_COPY, name)
+        path = os.path.join(REMOTE_COPY, *name.split("/"))
+        os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w", encoding="utf-8", newline="\n") as fh:
             fh.write(text)
         digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
@@ -353,6 +394,12 @@ def verify():
     for name in local_files():
         status, _ = probe(f"{LIVE}/{name}")
         print(f"  {name}: GET {status}")
+        ok = ok and status == 200
+    for page in PAGES:
+        if not os.path.isfile(page["local"]):
+            continue
+        status, _ = probe(f"{LIVE}{page['url']}")
+        print(f"  {page['file']}: GET {page['url']} {status}")
         ok = ok and status == 200
     status, body = probe(f"{LIVE}/x10_status.php")
     print(f"  status endpoint: {status} {body[:80]}")
