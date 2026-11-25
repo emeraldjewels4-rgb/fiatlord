@@ -645,14 +645,20 @@ Two files outside the repository, both under `%USERPROFILE%\.config\fiatlord\`:
 
 - `dispatch-live-check.ps1` sends that `POST` with `Authorization: Bearer
   <token>`, `Accept: application/vnd.github+json` and `X-GitHub-Api-Version:
-  2022-11-28`, then appends one line - UTC time and HTTP status - to
-  `%LOCALAPPDATA%\FiatLord\live-check-dispatch.log`.
+  2022-11-28`, then appends one line to
+  `%LOCALAPPDATA%\FiatLord\live-check-dispatch.log`:
+  `2026-11-25T15:52:04Z 204 accepted 412 ms`. The first field is the UTC time
+  and the second is what happened.
 - `live-check-token`, the file above.
 
 204 is the only success. 401 is a wrong or expired token, 403 a token without
-`Actions: write`, 404 the repository or workflow name; each one lands in the log
-as a status instead of as a failed task, because a dispatch that is rejected has
-no other symptom.
+`Actions: write`, 404 the repository or workflow name; each of those is the
+number in that second field rather than a failed task, because a dispatch that
+is rejected has no other symptom. Two words stand there when GitHub was never
+reached: `no-token` when the token file is missing or empty, followed by the
+path it looked for, and `error` when there was no response at all - DNS, proxy,
+TLS or timeout - followed by that message. Those are the lines that explain a
+gap, since nothing else records an attempt that never left the machine.
 
 From `cmd.exe`, as one line (`%USERPROFILE%` is expanded by cmd):
 
