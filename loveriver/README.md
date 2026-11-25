@@ -363,6 +363,19 @@ ops/install-audit-cron.sh --print    # show what would be installed
 ops/install-audit-cron.sh --remove
 ```
 
+The record check has the same two installers, because the commit gate covers commits and
+nothing else: `ops/install-record-check-task.ps1` registers `ops/record-check-nightly.vbs` daily
+at 22:40, and `ops/install-record-check-cron.sh` offers the same run at 22:40 and 09:40 on a host
+whose cron cannot catch up a missed minute. The hook runs `record-deployment.mjs --check` before
+every commit, so a redeploy nobody recorded is caught the next time somebody commits - and the days
+nobody commits have no check at all, a gap that lasts exactly as long as the work stays
+uncommitted, which is when a stale record is most likely. Both wrappers keep the tool's contract
+rather than improving on it: 0 the record matches the newest broadcast, 1 it is stale, 2 the check
+could not run, with any other code refused as 2, because a nightly job that reports success for a
+check it could not perform is worse than no job. A failing run leaves `logs/record-check-failed.txt`
+behind and the next passing run deletes it, so a failure is visible without opening the log or the
+scheduler.
+
 It needs no ledger, and it recovers more than the ledger ever held: a mint that happened before
 the ledger existed, or after it was deleted, is still there. What it cannot recover is which
 rule fired and which window was open — that context lived only in the ten-minute file, by
