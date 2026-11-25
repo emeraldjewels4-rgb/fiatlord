@@ -1,0 +1,5 @@
+# The maintenance pipeline's only third-party import. x10_ai.py and x10_agent.py
+# import pymysql at module level, so both tests stop at collection without it;
+# x10_fuse.py imports the driver late, for the commands that reach a database.
+# Everything else these files use is the standard library.
+PyMySQL==1.2.3
