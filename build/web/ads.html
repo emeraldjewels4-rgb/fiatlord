@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Advertisement</title>
+    <style>
+      html, body { margin: 0; padding: 0; background: transparent; overflow: hidden; }
+      body { font: 12px/1.4 system-ui, sans-serif; color: #64748b; }
+      .unit { margin: 0 auto; }
+    </style>
+  </head>
+  <body>
+    <!--
+      AADS ad unit 2461007 (adaptive, filtered "acceptable" pool) — the same unit
+      that runs on /scan/. It lives in this frame so the network's document never
+      shares an origin with the dashboard, and its height is reported to /ads.js,
+      which only then opens the strip at the bottom of the page.
+
+      To change network or unit, replace the iframe below and keep data-aa set —
+      the parent uses this frame's measured height, not the unit id.
+    -->
+    <div class="unit" id="unit">
+      <div id="aads-frame" style="width: 100%; margin: auto; position: relative;">
+        <iframe data-aa="2461007" src="//acceptable.a-ads.com/2461007/?size=Adaptive" title="Advertisement"
+                style="border:0; padding:0; width:70%; height:auto; overflow:hidden; display:block; margin:auto"></iframe>
+      </div>
+    </div>
+    <script>
+      // Report the real height to the parent so the strip only opens when there
+      // is something to show. An advert frame reports its CSS box immediately,
+      // so this does not wait on the network; if the unit is blocked, the slot
+      // still collapses to nothing and the dashboard is unchanged.
+      (function () {
+        var reported = false;
+        function report() {
+          if (reported) return;
+          var unit = document.getElementById('unit');
+          if (!unit) return;
+          var box = unit.getBoundingClientRect();
+          var height = Math.ceil(box.height);
+          if (!unit.children.length || height < 10) return;   // nothing to show
+          reported = true;
+          parent.postMessage({ type: 'web9999-ad', active: true, height: height }, '*');
+        }
+        window.addEventListener('load', function () { setTimeout(report, 150); });
+        // A unit that expands after load (or a lazy network script) gets a second
+        // chance, but the strip never opens on an empty box.
+        setTimeout(report, 1500);
+      })();
+    </script>
+  </body>
+</html>

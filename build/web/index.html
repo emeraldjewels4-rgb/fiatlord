@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head><meta charset="utf-8">
+    
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FiatLord — live crypto dashboard</title>
+    <meta
+      name="description"
+      content="FiatLord — crypto prices, swaps, a fiat card and on-chain liquidity in one dashboard."
+    />
+    <!-- The tab and every link preview should name the app, not the snapshot the
+         source was recovered from ("Did Last" was the original page title). -->
+    <meta property="og:title" content="FiatLord — live crypto dashboard" />
+    <meta
+      property="og:description"
+      content="Crypto prices, swaps, a fiat card and on-chain liquidity in one dashboard."
+    />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary" />
+    <!-- The app's own background, so phone browser chrome matches the page. -->
+    <meta name="theme-color" content="#020617" />
+    <!-- Inlined rather than a /favicon.ico link: there is no public/ directory
+         here, and the single-file build (index.deployed.html) has no siblings to
+         load, so a data URI is the only reference that survives both builds. -->
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2032'%3E%3Crect%20width='32'%20height='32'%20rx='8'%20fill='%23020617'/%3E%3Cpath%20d='M12%209%206%2016l6%207M20%209l6%207-6%207'%20fill='none'%20stroke='%23f97316'%20stroke-width='2.5'%20stroke-linecap='round'%20stroke-linejoin='round'/%3E%3C/svg%3E"
+    />
+    <script type="module" crossorigin src="/assets/index-Euyfrw0y.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-6o21nwvo.css">
+  </head>
+  <body>
+    <div id="root"></div>
+    <noscript>You need to enable JavaScript to run this app.</noscript>
+
+    <!-- Adverts. The unit lives in /ads.html, in its own frame: an ad network's
+         script cannot reach the dashboard, and nothing is loaded from anywhere
+         until that file contains a real unit. It tells /ads.js how tall it is,
+         and the strip only becomes visible then — so an empty ads.html leaves
+         the page exactly as it was.
+
+         Hidden with visibility, not display:none, and that distinction is load
+         bearing: display:none gives the frame no layout box, so ads.html measures
+         its own unit as zero, never reports, and the strip could never open. -->
+    <div
+      id="web9999-ad"
+      style="visibility:hidden;pointer-events:none;position:fixed;left:0;right:0;bottom:0;
+             z-index:2147483000;background:#020617;border-top:1px solid #1e293b;
+             text-align:center;padding:4px 0;"
+    >
+      <iframe
+        id="web9999-ad-frame"
+        src="/ads.html"
+        title="Advertisement"
+        loading="lazy"
+        referrerpolicy="no-referrer-when-downgrade"
+        style="width:100%;max-width:728px;height:90px;border:0;background:transparent;"
+      ></iframe>
+    </div>
+    <!-- Versioned query: browsers hold onto ads.js aggressively, and a stale copy
+         opens the strip with the previous handshake. Bump ?v= when ads.js changes,
+         or the fix ships to nobody who has visited before. -->
+    <script src="/ads.js?v=4" defer></script>
+  </body>
+</html>
