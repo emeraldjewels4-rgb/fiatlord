@@ -652,13 +652,14 @@ Two files outside the repository, both under `%USERPROFILE%\.config\fiatlord\`:
 - `live-check-token`, the file above.
 
 204 is the only success. 401 is a wrong or expired token, 403 a token without
-`Actions: write`, 404 the repository or workflow name; each of those is the
-number in that second field rather than a failed task, because a dispatch that
-is rejected has no other symptom. Two words stand there when GitHub was never
-reached: `no-token` when the token file is missing or empty, followed by the
-path it looked for, and `error` when there was no response at all - DNS, proxy,
-TLS or timeout - followed by that message. Those are the lines that explain a
-gap, since nothing else records an attempt that never left the machine.
+`Actions: write`, 404 the repository or workflow name, 422 a ref the workflow
+does not accept; each of those is the number in that second field rather than
+a failed task, because a dispatch that is rejected has no other symptom. Two
+words stand there when GitHub was never reached: `no-token` when the token file
+is missing or empty, followed by the path it looked for, and `error` when there
+was no response at all - DNS, proxy, TLS or timeout - followed by that message.
+Those are the lines that explain a gap, since nothing else records an attempt
+that never left the machine.
 
 From `cmd.exe`, as one line (`%USERPROFILE%` is expanded by cmd):
 
