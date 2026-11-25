@@ -1,0 +1,55 @@
+name: dashboard
+
+# The two traps this repo can hit are both invisible on the machine that
+# introduces them: a staged tree that no longer matches build/web (or a worker
+# the manifest no longer deploys), and line endings rewritten on checkout so a
+# page ships a different byte stream than the one published. Both are checked
+# here on the two operating systems people actually use, on every push and every
+# pull request, instead of relying on someone remembering to run them.
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  stage:
+    name: stage (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Node runs build/check_site_worker.mjs from inside --check. The runners
+      # ship it; if it went missing, --check says so rather than passing.
+      - name: Toolchain
+        run: |
+          python --version
+          node --version
+          git --version
+
+      - name: Python sources parse and hold no NUL bytes
+        run: python check_sources.py
+
+      - name: Staged tree matches build/web, and the worker passes
+        run: python build/make_site_fiatlord.py --check
+
+      # Deliberately after --check: --check compares the checkout with a tree
+      # built from that same checkout, so a mangled line ending moves both and
+      # it still passes. These pins are against the bytes the site serves.
+      - name: Checked-out files are still the published bytes
+        run: python .github/check_shell_bytes.py
+
+      # A checkout that rewrote endings would leave the staged tree clean (it is
+      # build output and stays ignored), so show what the runner actually got.
+      - name: Line endings in the working tree
+        run: git status --short

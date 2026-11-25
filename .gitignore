@@ -7,6 +7,13 @@
 !/.gitattributes
 !/RUNBOOK.md
 !/wrangler.jsonc
+!/check_sources.py
+
+# CI.
+!/.github/
+!/.github/workflows/
+!/.github/check_shell_bytes.py
+!/.github/workflows/dashboard.yml
 
 # Directories must be unignored before any file inside them can be.
 !/build/
