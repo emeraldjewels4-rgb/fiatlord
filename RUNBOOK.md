@@ -424,8 +424,11 @@ would serve, plus:
   holds a row at all and how old it is. `present: true` with an `ageMs` past the
   five-minute window is the expired-and-ignored case; `present: false` means the
   table is empty. Without this a stale row and an empty table both answered 502.
-- `isolate: "cold"` or `"warm"` -- whether this host already held a price, so a
-  forced read on a warm host is not mistaken for a cold start.
+- `isolate: "cold"` or `"warm"` -- whether this host already held a price when
+  it answered, so a forced read on a warm host is not mistaken for a cold start.
+  `?diag=cold` always reports `"cold"` because it drops that snapshot first.
+- `cleared: true` or `false` -- whether this request let go of the host's module
+  snapshot before reading (`true` only on `?diag=cold`).
 - `ageMs`, and the usual carried body (`prices` with `source: "carried"`,
   `carriedAt`, `snapshot`) on the 200. The 502 carries no `prices`.
 
@@ -443,6 +446,31 @@ the probe reports `isolate: "cold"`, which is a genuine cold-start read from D1.
 A 502 with `"stored":{"present":true,...}` proves the row survived and was only
 ignored for its age, so the window is the reason no prices came back; the probe
 never deletes or rewrites the row (it only selects).
+
+`isolate` describes the host that answered, not the probe: once a live fetch has
+run in an isolate, every later probe served there reports `isolate: "warm"`, and
+which host answers a request is routing's choice, not something a caller can ask
+for. So do not read `"warm"` as a failure -- it only means the request landed on
+a host that had already fetched.
+
+For a repeatable cold read use `?diag=cold`. It lets go of the isolate's module
+snapshot and then runs exactly the cold-start branch -- read the row, carry it
+-- so one request always takes the path a newly booted isolate takes. It answers
+the same body as `?diag=stored` with `"isolate":"cold"`, `"cleared":true` and
+the row's `ageMs`. Nothing is deleted from storage and nothing is written; only
+memory is dropped, and the next ordinary request refetches as it would on a host
+that had never answered, so the prices path is untouched.
+
+```
+curl -sS 'https://fiatlord-live-crypto-dashboard-9jx1bv.freebuff.site/api/coinspot/prices?diag=cold'
+```
+
+Run it within five minutes of a good fetch, because the carry is refused outside
+that window (`STORED_MAX_AGE_MS`): later than that the same request answers 502
+`stored row is older than 5 minutes`, which still proves the row is present but
+carries no prices. An eviction can also leave `?diag=stored` reporting `cold` on
+its own, but only while the row is fresh and only as routing luck; `?diag=cold`
+is the one to quote in a check.
 
 Any other `diag` value is refused with 400 rather than served as a live answer,
 so a typo cannot look like a successful probe.
