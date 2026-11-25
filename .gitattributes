@@ -1,0 +1,4 @@
+# Byte-exact checkout on every platform: build/web is staged and deployed verbatim, and
+# core.autocrlf=true would otherwise hand a Windows clone CRLF copies whose bytes differ
+# from the published page. Python stays LF-only for the same reason.
+* -text
