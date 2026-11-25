@@ -1,5 +1,29 @@
-node_modules/
-__pycache__/
-*.pyc
-build/site-fiatlord/
-.wrangler/
+# Whitelist only: this repo is public and sits inside a workspace that also
+# holds key material, payout ledgers and build output. Nothing is added unless
+# it is listed below. `*` ignores every file and directory; the `!` lines are
+# the complete set of dashboard sources and nothing else.
+*
+!/.gitignore
+!/.gitattributes
+!/RUNBOOK.md
+!/wrangler.jsonc
+
+# Directories must be unignored before any file inside them can be.
+!/build/
+!/build/web/
+!/build/web/assets/
+
+# Build tooling and the worker.
+!/build/check_site_worker.mjs
+!/build/make_site_fiatlord.py
+!/build/site-fiatlord.deploy.json
+!/build/site-fiatlord.schema.sql
+!/build/site-fiatlord.worker.js
+!/build/worker-id.mjs
+
+# Staged site inputs (only what index.html references).
+!/build/web/ads.html
+!/build/web/ads.js
+!/build/web/index.html
+!/build/web/assets/index-6o21nwvo.css
+!/build/web/assets/index-Euyfrw0y.js
