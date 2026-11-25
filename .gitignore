@@ -25,6 +25,7 @@
 !/build/check_live.py
 !/build/check_site_worker.mjs
 !/build/make_site_fiatlord.py
+!/build/make_bytecode_panel.py
 !/build/site-fiatlord.deploy.json
 !/build/site-fiatlord.schema.sql
 !/build/site-fiatlord.worker.js
