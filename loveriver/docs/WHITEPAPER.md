@@ -62,12 +62,14 @@ Windows are half-open, so a run exactly at a boundary belongs to the later windo
 both. At the shipped defaults that is two minting periods a year and roughly 1.4 × 10¹² LVR of
 projected expansion, all of it visible on chain as `Transfer` events from the zero address.
 
-**Two stages, two gates.** The five admin wallets are the pool that distribution spends from,
-so the pool is what must not stay empty:
+**Two rules and two gates, on disjoint balances.** The five admin wallets are the pool that
+distribution spends from, so the pool is what must not stay empty. The contract owns zero; the
+top-up owns the band above it, and the two never mint the same balance:
 
-| Stage | Trigger | Target | Gated? |
+| Rule | Trigger | Target | Gated? |
 |---|---|---|---|
-| Floor | balance < mark/2 | the mark | **No** — a rule with a calendar on it is not a floor |
+| Contract refill | balance = 0 | `GENESIS_SUPPLY` | **No** — it is the token's own rule |
+| Floor | 0 < balance < mark/2 | the mark | **No** — a rule with a calendar on it is not a floor |
 | Full | mark/2 ≤ balance < mark | the mark | Yes — `--within-window` |
 
 A wallet below half therefore goes to the mark immediately, in one ungated mint, because the
@@ -75,7 +77,7 @@ pool comes back at full strength. One between half and the mark waits for issuan
 poured back below half is safety, what closes the gap above it is issuance, and they are never
 the same mint.
 
-**The refill is hard-coded, and it is not the top-up.** A watched wallet — `owner`, `OPERATOR`
+**The refill is hard-coded, and it belongs to the token, not to the top-up.** A watched wallet — `owner`, `OPERATOR`
 (the operator's address is also the deployer's) and every `isAdmin` address — that reaches zero
 is minted back to `GENESIS_SUPPLY` (699,999,999,999 LVR, the
 header supply) inside the very transaction that empties it: `_move()` refills the sender
@@ -85,9 +87,18 @@ addresses. There is no timer and no interval: a contract has no clock, so `0.000
 second is not something a block can express, and same-transaction refill is strictly faster
 than any clock could be. The rule repeats with no cap and no counter, and each refill is a
 `Transfer` from the zero address. The fee wallet is excluded on purpose: rotation requires
-it to be empty. Consequence for the top-up stages above: the ungated floor can no longer
-find a zero admin to restore, because zero never persists; `topup.mjs` only closes the band
-between a partial balance and the mark.
+it to be empty.
+
+**Who owns which balance.** The contract owns zero, because it is the only party that can
+restore it without being asked, without a key and without waiting: `_move()` refills the wallet
+it has just emptied, and `refillEmpty()` covers one zeroed by any other path. The top-up owns
+the band above zero, because a mark is the only way to restore a wallet that a distribution
+left with dust rather than at nothing, and because that mint is the one a calendar can gate.
+The tool never mints a zeroed wallet: it triggers `refillEmpty()` and the header supply is what
+arrives. It never mints above the header supply either — a mark larger than `GENESIS_SUPPLY` is
+capped at it, so the contract's own amount is the ceiling on both rules. What the top-up adds
+is new supply, not a transfer of tokens that already existed, and neither rule moves tokens
+between admins.
 
 **The mark is recorded, never re-inferred.** `fund.mjs` writes it just before draining the
 admins; `topup.mjs` reads it. Resolution order is `--target` (a person) → the recorded mark →
@@ -115,7 +126,7 @@ is still empty and leaves partial balances alone.
 | Field | Meaning |
 |---|---|
 | `at` | the instant the mint was mined, ISO-8601 UTC |
-| `rule` | `floor` (never-empty backstop) or `full` (issuance inside a window) |
+| `rule` | `floor` (never-empty backstop), `full` (issuance inside a window) or `refill` (the contract's own restore, triggered by the tool) |
 | `window` | the open window (`window 1 of 2026`), `none` outside one, `ungated` if unchecked |
 | `admin` | the wallet minted to |
 | `amount` | LVR, decimal |

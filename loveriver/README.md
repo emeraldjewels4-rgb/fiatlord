@@ -43,8 +43,17 @@ moment it emptied could never be rotated away, and it is a separate address from
 the admins, so it is not part of the distribution pool at all.
 
 Every refill is a `Transfer` from the zero address, so the expansion is still visible on
-chain as a mint like any other. `node tools/topup.mjs` now only moves a balance that already
-exists: any admin between zero and the mark is topped up, and one at zero never gets there.
+chain as a mint like any other.
+
+The two rules have separate jobs, and `tools/topup.mjs` is the second one. The token owns zero:
+a watched wallet there is restored by the contract, and the tool never mints one — it calls
+`refillEmpty()` and lets the token pay. The tool owns the band above zero: it mints an admin
+still short of the mark back up to it, with `OWNER_KEY` (the operator, the owner, the only mint
+authority), in the same two stages as before (below half, ungated; half to the mark, gated by
+`--within-window`), and its mark is capped at `GENESIS_SUPPLY`, so no top-up can mint above what
+the contract itself would have minted. It never moves tokens between admins and never touches
+the fee wallet. A zeroed admin therefore comes back at the header supply, not at the mark, and
+everything either rule adds is new supply, not a transfer of tokens that already existed.
 
 ## Fees, without a liquidity pool
 
@@ -132,20 +141,28 @@ It is safe to re-run: only empty wallets are filled. A wallet holding less than 
 is treated as the wreck of an interrupted fill and stops the run with the addresses listed,
 because filling around it would hand identical wallets different amounts.
 
-## Admin wallets: a drained one comes back to the full mark
+## Admin wallets: the token restores zero, the top-up restores short
 
 The five admin wallets are the pool distribution spends from, so the pool is what must not
-stay empty. `tools/topup.mjs` refills it in two stages, and the stages have different gates:
+stay empty, and two rules share that job by never touching the same balance:
 
-| Stage | When | Amount | Gate |
+| Balance | Restored by | To | Gate |
 |---|---|---|---|
-| floor | below half of the mark | the full mark | none — this is the never-drained rule |
-| full | below the mark, at or above half | the mark | the mint window, when `--within-window` is on |
+| zero | the token, in the transaction that empties it | `GENESIS_SUPPLY` | none — the contract's own rule |
+| above zero, below half the mark | `tools/topup.mjs` | the mark | none — the never-drained floor |
+| half the mark to the mark | `tools/topup.mjs` | the mark | the mint window, when `--within-window` is on |
 
-A wallet drained below half — emptied, or left at a quarter — is therefore refilled straight
-back to its full amount in one ungated mint: the pool returns at full strength, not at half.
-Only the band between half and the mark waits for issuance, which is what makes it possible
-to say which part of a refill was the safety floor and which was issuance.
+The split is the decision, not an accident: the contract cannot be skipped, needs no key and
+runs in the same transaction, so zero is its business; a mark-based mint is the only way to
+restore a wallet a distribution left with dust rather than at nothing, so the band above zero is
+the top-up's. A mark above `GENESIS_SUPPLY` is capped at it, so the tool can never mint past the
+amount the contract itself would restore. A wallet the top-up finds at zero is not minted to the
+mark — it calls `refillEmpty()` and the token supplies the header amount.
+
+What the mark no longer is is a second refill target. It is still recorded (a person, or the
+balance `tools/fund.mjs` saw just before it spent it down) and it still decides what the tool's
+own mints aim at, but the amount that arrives when a wallet reaches zero is the contract's
+`GENESIS_SUPPLY`, and the tool caps itself at that same number so the two can never disagree.
 
 ### The full mark is recorded, not re-inferred
 
@@ -161,7 +178,7 @@ is visible — just before the interval fill spends those balances down — into
 | 2 | the recorded mark | written by a previous fill or top-up |
 | 3 | the highest balance on chain | only when nothing has been recorded yet |
 
-The mark is a ceiling until a person moves it: only `--target` raises or lowers it, so a
+The mark is fixed until a person moves it: only `--target` raises or lowers it, so a
 spend never quietly changes the number refills are measured against and a new mint does not
 silently redefine "full" either. With nothing recorded and every admin at zero there is no
 "full" to refill to, so the script asks for `--target` instead of inventing a number — that
@@ -170,11 +187,18 @@ mark is what makes a top-up work straight afterwards.
 
 Minting is owner-only, and the owner is the operator hard-coded in the token, so it signs with
 `OWNER_KEY` — that operator's key, not one of the admin keys from `wallets.json`, because there
-is no second authority to hand it. Before the first mint it compares the signing address with
+is no second authority to hand it. It also pays the gas for the `refillEmpty()` call it makes for
+a zeroed admin, though that call needs no authority of its own — anyone may trigger the token's
+restore. Before the first mint it compares the signing address with
 `owner()` and exits `1` without sending anything if they differ, which is exactly what a file
 still holding the key that was the owner before a `transferOwnership()` looks like. It never
 moves tokens between admins and never touches the fee wallet. Dry run is the default; sending
 needs `--broadcast` and `LOVERIVER_BROADCAST=yes`.
+
+The mark is a target, not a promise about the amount that arrives. If a mark is set above
+`GENESIS_SUPPLY` the run says so and refills to the header supply instead: the contract's own
+amount is the ceiling, because two rules for "full" is how a pool gets minted past what its
+restore rule would ever have paid.
 
 ## The year-end mint clock (GMT+11)
 
@@ -203,7 +227,8 @@ windows it mints only the ungated refill — every wallet below half back to the
 leaves the rest waiting. The flag is opt-in,
 because a refill is not the annual issuance — but the annual issuance is what you do not
 want guessing, so turning the gate on is one argument. The floor is deliberately not gated:
-a never-empty rule with a calendar on it is not a floor.
+a never-empty rule with a calendar on it is not a floor. Zero is outside the calendar entirely —
+the contract restores it whenever it happens, window or not.
 
 The schedule itself lives in `tools/mint-window.mjs` and both scripts import it, so the
 clock and the gate cannot drift apart into two different opinions about when minting is
@@ -252,8 +277,8 @@ cron has no wake or catch-up setting, so the twin offers two runs a day instead:
 at 07:17 still gets the 19:17 one. Repeating is free — a run only fills what is below the mark,
 and with nothing to do it exits `0`.
 
-Verified on this machine against a local anvil chain: the registered task refilled four empty
-admins from 0 to the full mark, wrote four ledger lines and exited `0`;
+Verified on this machine against a local anvil chain: the registered task minted four short
+admins up to the full mark, wrote four ledger lines and exited `0`;
 a second run logged `nothing to do` and exited `0`; and a trigger set three minutes in the past
 started on its own, which is the catch-up a slept-through day relies on.
 
@@ -396,6 +421,32 @@ shutdown are destroyed at the first tick after it boots — later than ten minut
 The tool closes that with `topup.mjs`'s deferred purge and the purge-on-touch fallback, but it
 is the fallback that catches it, not the clock.
 
+## The life binary: a space is 000000, never 0x20
+
+`tools/life-binary.mjs` writes `life.bin`, the runtime code the chain runs, as a spaced hex
+dump in which **every space is written as the six characters `000000`** — the encoded code
+holds no space character at all (only the `# ` comment lines, which are prose, keep ordinary
+spaces). It is derived, never typed: from
+`out/Loveriver.sol/Loveriver.json` after a build, or from `eth_getCode` with `--rpc` and
+`--token`, so the file can describe what is actually deployed rather than what is checked out.
+
+The header records where the bytes came from and the sha256 of the hex before encoding, which
+makes the file checkable instead of trusted:
+
+```bash
+node tools/life-binary.mjs                              # write life.bin from the build
+node tools/life-binary.mjs --rpc ... --token ...        # write it from the chain
+node tools/life-binary.mjs --check --rpc ... --token ...  # does life.bin match the chain?
+node tools/life-binary.mjs --decode                     # the dump, spaces restored
+node tools/life-binary.mjs --selftest                   # 10 checks: the encoding, the hash
+```
+
+`--check` exits `1` when the body no longer hashes to its own header (a hand-edited file) or
+when the header disagrees with the current build or the chain (a stale file), so an encoded
+dump cannot silently read as code. It is not compression — six characters per space is larger
+than one — and it does not replace the artifact; it is one fixed shape for the bytes so a diff
+between two builds is a diff between their code.
+
 ## Documents
 
 - `docs/WHITEPAPER.md` — the token, the issuance rules, the ledger, the risks, and how to
@@ -416,6 +467,7 @@ tools/full-mark.mjs      the stored full mark both scripts write and read
 tools/mint-clock.mjs     read-only GMT+11 clock: the two year-end mint windows
 tools/mint-window.mjs    the schedule the clock reports and the top-up gate enforces
 tools/mint-ledger.mjs    the ten-minute mint journal: append, purge, forget
+tools/life-binary.mjs    the runtime code as life.bin, where a space is 000000
 tools/selftest.mjs       the guard and check printer both selftests share
 docs/WHITEPAPER.md       the white paper
 docs/fiat-rules.md       fiat issuance rules, sourced, and where LVR differs
