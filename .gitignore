@@ -10,6 +10,13 @@ regtest/.demo/
 regtest/.failbin/
 regtest/bin/
 
+# The mainnet run's own state, created by mainnet/README.md steps 1 and 2 rather than by a tracked
+# script: ord-data/ is ord's index *and* its wallet, which holds the premine's keys, and
+# bitcoin-data/ is the node's datadir, whose .cookie is an RPC credential. Neither can be reviewed
+# in a diff, and either one staged would put a key or a password in the history permanently.
+mainnet/ord-data/
+mainnet/bitcoin-data/
+
 # Backups and git bundles: large, and regenerated from the repository. A *.bundle is output, not
 # a source file - it contains everything already tracked here.
 *.bundle

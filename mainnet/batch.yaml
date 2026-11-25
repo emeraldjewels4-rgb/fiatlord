@@ -1,0 +1,42 @@
+# Mainnet etch. Run it from this folder:  --batch batch.yaml
+#
+# ord 0.29 refuses a rune-only batch ("batchfile must contain at least one inscription"), so a
+# throwaway inscription rides along. Its content is irrelevant and it costs the inscription postage.
+mode: separate-outputs
+postage: 10000            # sats in the premine output; that value stays yours, it is not a fee
+
+inscriptions:
+  - file: throwaway.txt
+
+etching:
+  # Checked free at block 977,525 on two independent indexers, each with a control. A 404 on
+  # its own proves nothing — it can also mean a lagging index — so the same lookup was run
+  # against a rune that certainly exists:
+  #
+  #   ordinals.com/rune/WEBNINENINENINE   404
+  #   ordinals.com/rune/UNCOMMONGOODS     200, <title>Rune UNCOMMON•GOODS</title>
+  #   ordiscan.com/rune/WEBNINENINENINE   "WEBNINENINENINE (15 characters) Available — the
+  #                                        rune name "WEBNINENINENINE" is available to etch!"
+  #   ordiscan.com/rune/UNCOMMONGOODS     Rune #0, supply 178,477,072, mint 840,000-1,050,000
+  #
+  # Magic Eden and Ordinals Wallet were checked too, and are deliberately not cited: both
+  # answer 404 for UNCOMMONGOODS as well, so neither can tell a taken name from a free one.
+  # Re-check before spending anything if this file has sat for a while: a name is only free
+  # until someone else's reveal lands.
+  #
+  # A–Z only, 15 letters here. Spacers are cosmetic: NAME and N•A•M•E are the same rune and
+  # collide. The shortest etchable name is 6 letters above block 962,500 (5 at 980,000, 4 at
+  # 997,500), so 15 clears every gate. Digits are not allowed — spell them out as letters.
+  rune: WEB•NINE•NINE•NINE•NINE
+  divisibility: 0
+  premine: 1000000        # whole units you hold the moment it is mined; public forever
+  supply: 700000000       # MUST equal premine + terms.cap * terms.amount, or ord refuses to etch
+  symbol: ¤
+  turbo: true
+
+  terms:
+    amount: 1000000       # per mint
+    cap: 699              # 699 * 1,000,000 = 699,000,000 mintable
+    offset:               # relative to the etch block, since you cannot know it in advance
+      start: 0
+      end: 52500          # ~1 year of blocks; omit `end` for a mint that never closes

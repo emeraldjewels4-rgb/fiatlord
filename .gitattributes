@@ -1,0 +1,5 @@
+# Shell scripts are stored with LF whatever the clone's core.autocrlf says. Nothing in the history
+# needs rescuing today - every tracked blob is already LF - but a clone with autocrlf=false that
+# checks a script out, edits it and commits it would store CRLF, and a CRLF script dies under bash
+# on a Linux clone at the shebang line, before it can do anything.
+*.sh text eol=lf

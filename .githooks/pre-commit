@@ -4,6 +4,13 @@
 # Every `selftest*` script in loveriver/package.json runs before a commit is allowed, but only for
 # a commit that stages something under loveriver/, regtest/ or this directory - see the scope
 # check below.
+#
+# A commit that stages mainnet/ is gated too, but by a different check: mainnet/preflight.sh
+# --selftest. The tool selftests exercise loveriver/tools and cannot say anything about a batch
+# file; what can go wrong there is offline, and it is what that selftest asserts - the batch's own
+# arithmetic, the rune name and the postage budget, against the copies preflight.sh carries. It
+# costs a fraction of a second, so a mainnet-only commit is never asked to spend 25 seconds on a
+# suite that cannot fail for it.
 # Those are the only executable proof that the tooling behaves - the key derivation, the mint
 # ledger, the clock window, the purge watch, the chain audit, the wallet restore, the repo backup,
 # the deployment record and the funder - and a commit that breaks one of them is exactly the change
@@ -80,12 +87,36 @@ printf '  ok    %s\n' "$(printf '%s' "$record" | tail -1 | sed 's/^ *//')" >&2
 # so - out loud, with the paths it saw - because a gate that goes quiet without explanation is
 # indistinguishable from one that is not installed.
 staged=$(git diff --cached --name-only 2>/dev/null || true)
+
+# The mainnet gate, before the scope test can skip it. It is preflight's own --selftest rather than
+# a second copy of the same checks here: the rune name and the postage budget are read from the
+# script that uses them, and the same command can be run by hand before a release or from CI. It
+# needs no bitcoind, no ord and no network - which is the whole reason it can live in a hook, where
+# the six real checks cannot.
+if printf '%s\n' "$staged" | grep -qE '^mainnet/'; then
+  echo "pre-commit: mainnet run files, mainnet/preflight.sh --selftest" >&2
+  mainnet_out=$(cd "$root/mainnet" && bash preflight.sh --selftest 2>&1)
+  mainnet_status=$?
+  if [ "$mainnet_status" -ne 0 ]; then
+    printf '%s\n' "$mainnet_out" | tail -12 | sed 's/^/        /' >&2
+    echo "" >&2
+    echo "  REFUSED: mainnet/preflight.sh --selftest failed (exit $mainnet_status); the commit was not created." >&2
+    echo "           Fix batch.yaml, or the copies of RUNE_NAME and POSTAGE_SATS in preflight.sh," >&2
+    echo "           then commit again (or bypass once with: git commit --no-verify)" >&2
+    exit 2
+  fi
+  printf '%s\n' "$mainnet_out" | grep -E '^  ok ' >&2 || true
+fi
+
 if ! printf '%s\n' "$staged" | grep -qE '^(loveriver/|regtest/|\.githooks/)'; then
   echo "pre-commit: SKIPPED - no staged path under loveriver/, regtest/ or .githooks/, so the tool selftests were not run." >&2
   if [ -z "$staged" ]; then
     echo "            nothing is staged at all (an empty or amended commit); the selftests will run for the next commit that touches those paths." >&2
   else
     echo "            staged, outside those paths: $(printf '%s' "$staged" | head -3 | tr '\n' ' ')" >&2
+  fi
+  if printf '%s\n' "$staged" | grep -qE '^mainnet/'; then
+    echo "            mainnet/ was gated above by preflight --selftest; the tool suite is not run for it." >&2
   fi
   exit 0
 fi

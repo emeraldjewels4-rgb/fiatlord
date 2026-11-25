@@ -1,0 +1,30 @@
+# ord's mainnet settings for the rune etch in this folder.
+#
+# Deliberately separate from regtest/ord.yaml, which points at the regtest
+# datadir and chain. A mainnet run must not read, or write, anything in
+# regtest/: the README's own rule is that the regtest wallet, its keys and its
+# backup are never reused here.
+#
+# Every path below is resolved by ord relative to this file's folder when the
+# commands are run from mainnet/, which is how mainnet/README.md runs them.
+# Nothing here is a credential: the node is read over loopback with the cookie
+# file in bitcoin_data_dir, so no user or password is written down.
+
+# ord's index and its wallet (ord-data/regtest/... on the regtest side; here
+# ord-data/mainnet/...). Holding the premine means this directory *is* a wallet,
+# so it is git-ignored and backed up like one.
+data_dir: ./ord-data
+
+# The mainnet node's datadir, read for blocks and for the RPC cookie. Using a
+# datadir rather than bitcoin_rpc_username/bitcoin_rpc_password keeps the
+# password out of a tracked file.
+bitcoin_data_dir: ./bitcoin-data
+
+# The HTTP server the wallet commands talk to. ord has no --server-url flag;
+# without this line every wallet command fails against http://127.0.0.1/blockcount.
+server_url: http://127.0.0.1:8080
+
+# Where that server's node answers. Loopback only: the etch talks to the node on
+# this machine, never to a public RPC, so a wrong endpoint cannot be mistaken for
+# a slow one.
+bitcoin_rpc_url: http://127.0.0.1:8332
