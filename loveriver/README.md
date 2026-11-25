@@ -174,7 +174,7 @@ is visible — just before the interval fill spends those balances down — into
 
 | Order | Source | Behaviour |
 |---|---|---|
-| 1 | `--target <LVR>` | explicit, and recorded for later runs |
+| 1 | `--target <LVR>` | explicit, and recorded for later runs (capped at `GENESIS_SUPPLY`) |
 | 2 | the recorded mark | written by a previous fill or top-up |
 | 3 | the highest balance on chain | only when nothing has been recorded yet |
 
@@ -198,7 +198,9 @@ needs `--broadcast` and `LOVERIVER_BROADCAST=yes`.
 The mark is a target, not a promise about the amount that arrives. If a mark is set above
 `GENESIS_SUPPLY` the run says so and refills to the header supply instead: the contract's own
 amount is the ceiling, because two rules for "full" is how a pool gets minted past what its
-restore rule would ever have paid.
+restore rule would ever have paid. The capped number is the one recorded, with a line saying it
+was capped, so the file holds the target the tool will actually use — storing the uncapped value
+would reprint the same notice on every later run and record a number nothing ever aims at.
 
 ## The year-end mint clock (GMT+11)
 

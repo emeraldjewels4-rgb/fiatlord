@@ -8,11 +8,18 @@
  *   is the supply that exists for distribution; the distribution wallets hold only what has
  *   been paid out of it. So the pool is what must never be left empty.
  *
- *   Stage 1, the floor.   Below half of the mark, mint straight back to the mark: a drained
- *                         wallet comes back at its full amount, not at half of it, whether
- *                         it was emptied or left at a quarter. This stage is never gated:
- *                         it is the rule that a wallet does not stay drained, and a rule
- *                         with a calendar on it is not a floor.
+ *   Zero is not this script's. The token owns it: a watched wallet that reaches zero is
+ *   minted back to GENESIS_SUPPLY inside the transaction that empties it, and `refillEmpty()`
+ *   covers one zeroed by any other path. Nothing outside the contract can restore that amount,
+ *   so this script never mints a zeroed wallet - it calls `refillEmpty()` and lets the token
+ *   pay. That is also the ceiling: the mark is capped at GENESIS_SUPPLY, so no top-up can
+ *   mint above the amount the contract itself would have minted.
+ *
+ *   Stage 1, the floor.   Above zero and below half of the mark, mint straight back to the
+ *                         mark: a wallet left at a quarter comes back at its full amount, not
+ *                         at half of it. This stage is never gated: it is the rule that a
+ *                         wallet does not stay drained, and a rule with a calendar on it is
+ *                         not a floor.
  *   Stage 2, the full.    Between half and the mark, mint back to the mark. This stage is
  *                         the issuance, so `--within-window` puts it on the mint calendar
  *                         and outside a window it waits.
@@ -71,11 +78,22 @@ const value = (n, d) => {
 
 const ABI = [
   'function mint(address to, uint256 amount)',
+  'function refillEmpty()',
+  'function GENESIS_SUPPLY() view returns (uint256)',
   'function balanceOf(address) view returns (uint256)',
   'function owner() view returns (address)',
   'function totalSupply() view returns (uint256)',
   'function isAdmin(address) view returns (bool)',
 ];
+
+/** Which rule owns a balance: the token's refill at zero, this tool's floor below half, its
+ *  gated stage below the mark, or nothing. One predicate, so the plan and the selftest cannot
+ *  disagree about which balance belongs to whom. */
+const stageOf = (balance, floor, target) =>
+  balance === 0n ? 'refill' : balance < floor ? 'floor' : balance < target ? 'full' : 'none';
+
+/** The mark is this tool's target; the contract's refill is its ceiling. */
+const cappedAt = (mark, ceiling) => (mark > ceiling ? ceiling : mark);
 
 const file = resolve(value('file', 'wallets.json'));
 const stateFile = resolve('admin-full-mark.json');
@@ -115,6 +133,10 @@ if (flag('selftest')) {
     tokenRefusal('0x1234') === '--token 0x1234 is not an address'
   );
   check('a good address is not refused', tokenRefusal('0x' + '11'.repeat(20)) === '');
+  check('an admin at zero is the token\'s refill, not a mint', stageOf(0n, 5n, 10n) === 'refill');
+  check('an admin at a quarter of the mark is the floor', stageOf(2n, 5n, 10n) === 'floor');
+  check('a mark below the header supply is left alone', cappedAt(7n, 10n) === 7n);
+  check('a mark above the header supply is capped at it', cappedAt(20n, 10n) === 10n);
 
   const bad = spawnSync(process.execPath, [fileURLToPath(import.meta.url), '--token', '0xnot-an-address'], {
     encoding: 'utf8',
@@ -244,33 +266,67 @@ if (targetArg) {
   process.exit(1);
 }
 
+// The contract's own target is the ceiling here. A mark above GENESIS_SUPPLY would ask this
+// tool to mint more than the token mints when it restores a wallet, which is two rules
+// disagreeing about "full"; the header supply wins. The cap is applied before the mark is
+// stored, so the file holds the number the tool actually uses: a stored 999999999999999 would
+// be re-capped on every run and reprint the same notice forever, and a record of a target this
+// tool will never aim at is worse than no record.
+const genesis = await reader.GENESIS_SUPPLY();
+const requested = target;
+if (cappedAt(target, genesis) !== target) {
+  console.log(
+    `  mark ${formatUnits(target, 18)} LVR is above the token's GENESIS_SUPPLY ` +
+      `${formatUnits(genesis, 18)}; refills are capped at the header supply`
+  );
+  target = cappedAt(target, genesis);
+}
+
 if (!recorded || target !== recorded.fullMark) {
   writeFullMark(stateFile, target, source === '--target' ? '--target' : 'topup.mjs');
-  console.log(`  full mark recorded -> ${stateFile}`);
+  console.log(
+    `  full mark recorded -> ${stateFile}` +
+      (target === requested ? '' : ` (${formatUnits(requested, 18)} LVR capped to the header supply)`)
+  );
+} else if (target === requested) {
+  console.log(`  full mark already recorded -> ${stateFile}`);
 }
 const floor = target / 2n;
 console.log(
   `  full mark ${formatUnits(target, 18)} LVR per admin, floor at half ${formatUnits(floor, 18)} (${source})`
 );
 
-// Two lists, because the two stages are different promises: below the floor is a wallet that
-// may not stay empty, below the mark is issuance that the calendar may refuse.
+// Three lists, because three rules own them: a zero balance belongs to the token, the band
+// below half is this tool's ungated floor, and the band below the mark is its gated stage.
+const refillTopUps = [];
 const floorTopUps = [];
 const fullTopUps = [];
 balances.forEach((balance, index) => {
   const percent = (Number((balance * 10_000n) / target) / 100).toFixed(1);
+  const stage = stageOf(balance, floor, target);
   const state =
-    balance === 0n ? 'EMPTY' : balance < floor ? 'below floor' : balance < target ? 'floor to full' : 'full';
+    stage === 'refill'
+      ? 'EMPTY: the token restores this one'
+      : stage === 'floor'
+        ? 'below floor'
+        : stage === 'full'
+          ? 'floor to full'
+          : 'full';
   console.log(`    ${admins[index]}  ${formatUnits(balance, 18)} LVR (${percent}%)  ${state}`);
-  // Anything below half is refilled to the full mark in the ungated stage: the rule is that
-  // the pool comes back at full strength rather than at half, whether it was drained to zero
-  // or to a quarter. Stage 2 then has nothing left to add for it; only the band between half
-  // and the mark waits for a window.
-  if (balance < floor) {
-    floorTopUps.push({ address: admins[index], amount: target - balance });
+  // The contract's refill, not a mint: it mints GENESIS_SUPPLY into a watched wallet that
+  // holds zero, so this run only triggers it. The amount is what the plan reports.
+  if (stage === 'refill') {
+    refillTopUps.push({ kind: 'refill', address: admins[index], amount: genesis });
     return;
   }
-  if (balance < target) fullTopUps.push({ address: admins[index], amount: target - balance });
+  // Anything below half is refilled to the full mark in the ungated stage: the rule is that
+  // the pool comes back at full strength rather than at half. Stage 2 then has nothing left
+  // to add for it; only the band between half and the mark waits for a window.
+  if (stage === 'floor') {
+    floorTopUps.push({ kind: 'mint', address: admins[index], amount: target - balance });
+    return;
+  }
+  if (stage === 'full') fullTopUps.push({ kind: 'mint', address: admins[index], amount: target - balance });
 });
 
 // The floor is not gated. Only stage 2 asks the calendar.
@@ -291,8 +347,14 @@ if (withinWindow) {
 const windowLabel = !withinWindow ? 'ungated' : gateOpen ? `${gateOpen.label} of ${gateOpen.year}` : 'none';
 
 const phases = [];
+if (refillTopUps.length > 0)
+  phases.push({
+    rule: 'refill',
+    name: 'refill: a wallet at zero, restored by the token to the header supply',
+    items: refillTopUps,
+  });
 if (floorTopUps.length > 0)
-  phases.push({ rule: 'floor', name: 'floor: a drained wallet back to the mark, never drained', items: floorTopUps });
+  phases.push({ rule: 'floor', name: 'floor: a short wallet back to the mark, never drained', items: floorTopUps });
 if (canIssue && fullTopUps.length > 0) phases.push({ rule: 'full', name: 'full: back to the mark', items: fullTopUps });
 
 const total = phases.reduce(
@@ -309,7 +371,7 @@ if (phases.length === 0) {
   process.exit(0);
 }
 
-console.log(`  plan: mint ${formatUnits(total, 18)} LVR across ${phases.length} stage(s)`);
+console.log(`  plan: ${formatUnits(total, 18)} LVR of new supply across ${phases.length} stage(s)`);
 for (const phase of phases) {
   console.log(`    ${phase.name}`);
   for (const item of phase.items) console.log(`      +${formatUnits(item.amount, 18)} -> ${item.address}`);
@@ -327,13 +389,17 @@ if (process.env.LOVERIVER_BROADCAST !== 'yes') {
 
 const key = process.env.OWNER_KEY;
 if (!key) {
-  console.error('  OWNER_KEY (the mint authority) is not set; mint() is owner-only');
+  console.error('  OWNER_KEY is not set; it signs the mints and pays the gas for a refill');
   process.exit(2);
 }
 
 const owner = new Wallet(key, provider);
+// A refill needs no authority - anyone may call `refillEmpty()` - so the owner check is only
+// owed when this plan actually mints. Requiring it for a restore would refuse a run the
+// contract would have accepted.
+const needsMint = phases.some((phase) => phase.items.some((item) => item.kind === 'mint'));
 const tokenOwner = await reader.owner();
-if (tokenOwner.toLowerCase() !== owner.address.toLowerCase()) {
+if (needsMint && tokenOwner.toLowerCase() !== owner.address.toLowerCase()) {
   console.error(`  ${owner.address} is not the owner of this token (owner is ${tokenOwner}); mint would revert`);
   process.exit(1);
 }
@@ -390,17 +456,21 @@ const runDeadline = Date.now() + RUN_TIMEOUT_SECONDS * 1000;
  *  instruction to check before re-running - but they say which deadline ran out. */
 function failStall(error, item, transaction) {
   const left = planned - confirmed - (transaction ? 1 : 0);
+  // A refill is not a mint call: the token pays GENESIS_SUPPLY, and the transaction only asked
+  // for it. Naming the call the operator actually sent is the difference between a hash to look
+  // up and a wrong idea of what it did.
+  const action = item.kind === 'refill' ? 'refillEmpty()' : 'mint';
   if (error.kind === 'run') {
     console.error(
       transaction
-        ? `  REFUSED: the run passed --run-timeout ${RUN_TIMEOUT_SECONDS}s while mint ${transaction.hash} ` +
+        ? `  REFUSED: the run passed --run-timeout ${RUN_TIMEOUT_SECONDS}s while ${action} ${transaction.hash} ` +
             `(${formatUnits(item.amount, 18)} LVR to ${item.address}, nonce ${transaction.nonce}) was unconfirmed.`
-        : `  REFUSED: the run passed --run-timeout ${RUN_TIMEOUT_SECONDS}s before mint ` +
+        : `  REFUSED: the run passed --run-timeout ${RUN_TIMEOUT_SECONDS}s before ${action} ` +
             `${formatUnits(item.amount, 18)} LVR to ${item.address} could be sent.`
     );
   } else {
     console.error(
-      `  REFUSED: mint ${transaction.hash} (${formatUnits(item.amount, 18)} LVR to ${item.address}, ` +
+      `  REFUSED: ${action} ${transaction.hash} (${formatUnits(item.amount, 18)} LVR to ${item.address}, ` +
         `nonce ${transaction.nonce}) is sent but has no receipt after ${CONFIRM_TIMEOUT_SECONDS}s.`
     );
   }
@@ -418,6 +488,32 @@ function failStall(error, item, transaction) {
 
 for (const phase of phases) {
   console.log(`  ${phase.name}`);
+  if (phase.rule === 'refill') {
+    // One call, not one per wallet: `refillEmpty()` pays every watched wallet that is at zero,
+    // so a second call would be a no-op and a second line would claim a mint it did not make.
+    if (Date.now() >= runDeadline)
+      failStall(new WaitExpired('run', RUN_TIMEOUT_SECONDS), phase.items[0], null);
+    const tx = await writer.refillEmpty({ nonce: nonce++ });
+    try {
+      await confirmWithin(tx);
+    } catch (error) {
+      if (!(error instanceof WaitExpired)) throw error;
+      failStall(error, phase.items[0], tx);
+    }
+    for (const item of phase.items) {
+      confirmed++;
+      appendLedger(ledgerFile, {
+        at: new Date().toISOString(),
+        rule: phase.rule,
+        window: windowLabel,
+        admin: item.address,
+        amount: formatUnits(item.amount, 18),
+        txHash: tx.hash,
+      });
+      console.log(`    ${item.address} +${formatUnits(item.amount, 18)} LVR (${tx.hash})`);
+    }
+    continue;
+  }
   for (const item of phase.items) {
     // Checked before sending as well as while waiting: a run whose budget is gone must not put
     // another mint into the mempool on its way out.
@@ -450,7 +546,9 @@ const held = purgeLedger(ledgerFile, Date.now());
 // Scheduler entry and no window flashing every minute. It is unref'd, its stdio is ignored and
 // it sleeps for ten minutes - three reasons it must never be what decides when this run ends.
 const purgePid = deferPurge(ledgerFile);
-console.log(`  done: floor restored everywhere it was needed, ${phases.length} stage(s) minted`);
+console.log(
+  `  done: ${phases.length} stage(s) — short wallets minted, zeroed wallets restored by the token`
+);
 const lastLine =
   `  ledger: ${held.kept} entr${held.kept === 1 ? 'y' : 'ies'} kept ${RETENTION_MS / 60000} minutes, then destroyed ` +
   `by a scheduled purge (pid ${purgePid}); the chain keeps the permanent record`;

@@ -96,7 +96,8 @@ the band above zero, because a mark is the only way to restore a wallet that a d
 left with dust rather than at nothing, and because that mint is the one a calendar can gate.
 The tool never mints a zeroed wallet: it triggers `refillEmpty()` and the header supply is what
 arrives. It never mints above the header supply either — a mark larger than `GENESIS_SUPPLY` is
-capped at it, so the contract's own amount is the ceiling on both rules. What the top-up adds
+capped at it and the capped value is the one recorded, so the contract's own amount is the
+ceiling on both rules and the stored mark is the number the tool actually aims at. What the top-up adds
 is new supply, not a transfer of tokens that already existed, and neither rule moves tokens
 between admins.
 

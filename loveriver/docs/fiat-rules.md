@@ -50,7 +50,8 @@ asset purchases, a target — reviewed on a calendar, and the quantity follows d
 
 **Where it differs:** a central bank changes policy at scheduled meetings with published
 minutes and a committee behind the decision. Here there is one key, and the calendar is
-enforced by `topup.mjs --within-window`, not by the contract. The owner can call `mint()`
+enforced by `topup.mjs --within-window`, not by the contract; the one rule the contract does
+enforce by itself is the restore of a zeroed wallet, and that rule has no calendar. The owner can call `mint()`
 directly, at any moment, for any amount, and nothing in `Loveriver.sol` stops it. The
 schedule is a commitment by the operator, not a constraint on the token.
 
