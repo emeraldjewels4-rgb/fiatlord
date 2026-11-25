@@ -20,10 +20,13 @@ name: live-check
 #   - on any push that touches this file or the check itself, so a change to
 #     the check is exercised at once instead of at the next tick.
 #
-# The file is .yaml, not .yml, on purpose: it was renamed once because the cron
-# in the .yml file never fired - GitHub's workflow object for that path kept its
-# original updated_at through two edits, as if the schedule had never been
-# registered. A new path is a new workflow id, and a new id registers cleanly.
+# The file is .yaml, not .yml, because it was renamed once on the theory that a
+# fresh path (and so a fresh workflow id) would make the cron register: the
+# .yml workflow's object had kept its original updated_at through two edits, as
+# if the schedule had never been registered. That did not fix it. The renamed
+# workflow (id 430304567) went active and ran only on push; no schedule run
+# appeared at the 13:00Z or 13:30Z boundary after the rename. Do not rename it
+# again as a fix - see the scheduled-live-check section of RUNBOOK.md.
 
 on:
   schedule:

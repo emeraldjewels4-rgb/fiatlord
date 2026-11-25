@@ -578,12 +578,18 @@ POST /repos/emeraldjewels4-rgb/fiatlord/actions/workflows/live-check.yaml/dispat
 {"ref": "main"}
 ```
 
-The workflow file is `.yaml` rather than `.yml` on purpose. The cron in the
-`.yml` file never fired, and GitHub's object for it kept its creation timestamp
-through two edits, which is what an unregistered schedule looks like. A rename
-changes the path and therefore the workflow id, which is the step that forces
-GitHub to register the trigger afresh; the old workflow and its runs stay in the
-Actions history.
+The workflow file is `.yaml` rather than `.yml` because it was renamed once to
+test a theory. The cron in the `.yml` file never fired, and GitHub's object for
+it kept its creation timestamp through two edits, which is what an unregistered
+schedule looks like, so giving it a new path - and therefore a new workflow id -
+was expected to register the trigger afresh.
+
+It did not work. The renamed workflow (id 430304567) went `active` and ran on
+push only; after the rename there was no `schedule` run at the 13:00Z or 13:30Z
+boundary, or any other. Renaming is not a fix for the missing cron and should
+not be repeated on that theory. Until the real cause is known, treat
+`workflow_dispatch` and pushes as the only triggers that run, and do not count
+on the 30-minute tick: a stale deploy looks exactly like one nobody checked.
 
 ```
 python build/check_live.py                        # the production host
