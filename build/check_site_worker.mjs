@@ -1028,7 +1028,7 @@ const CHECKED_TICKER = {
 {
   const bundle = "console.log('bundle');\n";
   const env = host({
-    "/assets/index-Euyfrw0y.js": {
+    "/assets/index-87a7946b18f5.js": {
       body: bundle,
       headers: {
         "content-type": "text/javascript; charset=utf-8",
@@ -1037,7 +1037,7 @@ const CHECKED_TICKER = {
     },
   });
   const worker = await load();
-  const { response, body } = await call(worker, "/assets/index-Euyfrw0y.js", { env });
+  const { response, body } = await call(worker, "/assets/index-87a7946b18f5.js", { env });
 
   eq("asset status", response.status, 200);
   eq("asset cache", response.headers.get("cache-control"), IMMUTABLE);

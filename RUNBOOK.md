@@ -551,20 +551,39 @@ shipping.
 #### Where build/web/assets came from
 
 The two bundles in `build/web/assets` are a saved copy of the live site put
-aside on 4 Nov 2026, not output of a build run in this repo. The JS is build
-**Euyfrw0y**, one build behind the `index-BoSs10Hc.js` that the shell used to
-request: that file was never recovered (`fiatgod.x10.mx` is unreachable and no
-archive snapshot exists), so the shell's `src` was repointed at the build that
-is actually here. Do not rename it to `BoSs10Hc` - a hash name that does not
-match the bytes is a lie about what is being served.
+aside on 4 Nov 2026, not output of a build run in this repo -- there are no page
+sources here to build from. The JS arrived as build **Euyfrw0y**, one build
+behind the `index-BoSs10Hc.js` that the shell used to request: that file was
+never recovered (`fiatgod.x10.mx` is unreachable and no archive snapshot
+exists), so the shell's `src` was repointed at the build that was actually
+here.
+
+That bundle has since been patched by hand, because the one thing the page could
+not say was whether its prices were live or carried: the feed chip read
+`CoinSpot live` after any successful poll, a replay of the stored snapshot
+included. The patch is three expressions and nothing else:
+
+- `yk()` returns `carriedAll`, true when every price in the answer carries
+  `source: "carried"`.
+- The poll sets the feed to `carried` in that case instead of `coinspot`.
+- The chip renders a third state, `Carried prices`, with the row's age and `not
+  live`, in sky where live is emerald and simulated is amber.
+
+That is the whole UI change; no other bytes differ. The patched file is
+`assets/index-87a7946b18f5.js`, named by the first 12 hex of the sha256 of its
+own bytes rather than by Vite's hash -- the file is not a build output, so the
+name says what it is and still matches the bytes. `.github/check_shell_bytes.py`
+and `build/check_site_worker.mjs` name the current bundle: an intended change to
+the page means new bytes, a new name, and updated pins, which is the point of
+both checks.
 
 | file | bytes | sha256 |
 | --- | --- | --- |
-| `assets/index-Euyfrw0y.js` | 974,348 | `b406337682961eee85abe58adab19340acb49532a28cd246adee28997574fc99` |
+| `assets/index-87a7946b18f5.js` | 974,646 | `87a7946b18f59404ff97c7cb594b66fffa9d9f34c763afa6056fb7e0bea3de7f` |
 | `assets/index-6o21nwvo.css` | 77,158 | `7aad3033abdbff501f4224f4e3431a2a1b2b83630310ec49814b35da70b087a0` |
 
-The CSS name is the one the shell asked for; the JS is not. Treat both as a
-pinned snapshot: they are not rebuilt from `build/web/*.php`, so a PHP change
+The CSS name is the one the shell asked for; the JS name is not. Treat both as
+a pinned snapshot: they are not rebuilt from `build/web/*.php`, so a PHP change
 published through `x10_deploy.py push` does not reach this page until a newer
 bundle can be fetched and staged.
 

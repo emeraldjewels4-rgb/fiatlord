@@ -28,13 +28,13 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 # build/web. An intended change to the page means new bytes here as well - that
 # is the point: the hash cannot drift without someone saying so.
 PINNED = {
-    "build/web/index.html": "d645f7ce2f58239a3fa3bfd30e7acec3e795f459fa1cb0af04bcc52bae19d112",
+    "build/web/index.html": "3cf4bdcd06c015fbf10b6c23d34bdac1421fddc45c028878b297b85f88daf435",
     "build/web/ads.html": "b084a4ec91d0fbb3bf47d4ea5450fb289ccce30a253d1354a86d6affbe929922",
     "build/web/ads.js": "977d35b73e215bb4955e8c5655f05264cf471bca13d9579dc8e7389b868174dd",
     "build/web/assets/index-6o21nwvo.css":
         "7aad3033abdbff501f4224f4e3431a2a1b2b83630310ec49814b35da70b087a0",
-    "build/web/assets/index-Euyfrw0y.js":
-        "b406337682961eee85abe58adab19340acb49532a28cd246adee28997574fc99",
+    "build/web/assets/index-87a7946b18f5.js":
+        "87a7946b18f59404ff97c7cb594b66fffa9d9f34c763afa6056fb7e0bea3de7f",
 }
 
 
