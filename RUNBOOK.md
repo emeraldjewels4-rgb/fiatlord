@@ -616,8 +616,8 @@ A token would settle it, in this order:
   scopes are what the workflow assumes.
 - `GET .../actions/workflows?per_page=100` (`gh workflow list --all`): `state`
   and `disabled_inactivity` on every workflow, which the anonymous view omits.
-- `POST .../actions/workflows/live-check.yaml/dispatches {"ref": "main"}`: that
-  a run starts today by dispatch, so the schedule is the only broken trigger.
+- the dispatch `POST` above: that a run starts today, so the schedule is the
+  only broken trigger.
 - `PUT .../actions/workflows/live-check.yaml/enable`: a 204 and still no
   schedule run points at the account rather than the workflow.
 
@@ -627,11 +627,11 @@ like one nobody checked.
 
 #### Fallback: dispatch the live check from outside GitHub
 
-Until the schedule runs again, something off GitHub has to ask for a run: the
-same `POST` above, every 30 minutes, from a machine that is always on - the one
-already running the `x10_*` maintenance tasks. Nothing in this repository
-changes. No second workflow, no probe, no secret in a file git can see, and no
-deploy: the fallback only asks GitHub for the run the cron no longer starts.
+Until the schedule runs again, something off GitHub has to ask for a run: that
+dispatch `POST`, every 30 minutes, from the machine that already runs the
+`x10_*` maintenance tasks. Nothing in this repository changes. No second
+workflow, no probe, no secret in a file git can see, and no deploy: the
+fallback only asks GitHub for the run the cron no longer starts.
 
 The token is a fine-grained PAT on `emeraldjewels4-rgb/fiatlord` alone, with
 `Actions: read and write` and nothing else, expiring in 90 days rather than the
@@ -643,11 +643,10 @@ the file and the scheduled command names only the file.
 
 Two files outside the repository, both under `%USERPROFILE%\.config\fiatlord\`:
 
-- `dispatch-live-check.ps1` reads the token, POSTs `{"ref": "main"}` to
-  `/repos/emeraldjewels4-rgb/fiatlord/actions/workflows/live-check.yaml/dispatches`
-  with `Authorization: Bearer <token>`, `Accept: application/vnd.github+json`
-  and `X-GitHub-Api-Version: 2022-11-28`, then appends one line - UTC time and
-  HTTP status - to `%LOCALAPPDATA%\FiatLord\live-check-dispatch.log`.
+- `dispatch-live-check.ps1` sends that `POST` with `Authorization: Bearer
+  <token>`, `Accept: application/vnd.github+json` and `X-GitHub-Api-Version:
+  2022-11-28`, then appends one line - UTC time and HTTP status - to
+  `%LOCALAPPDATA%\FiatLord\live-check-dispatch.log`.
 - `live-check-token`, the file above.
 
 204 is the only success. 401 is a wrong or expired token, 403 a token without
@@ -674,9 +673,9 @@ skips the tick outright: `schtasks` records nothing for a start it could not
 make, so a week of ticks can be lost with a clean log, the task still `Ready`
 and no run anywhere to fail. `schtasks /create` has no switch for the catch-up
 setting; check "Run task as soon as possible after a scheduled start is missed"
-in Task Scheduler, or set `StartWhenAvailable` through `Set-ScheduledTask`, and a
-late tick becomes one late run - not the history, and nothing at all for a box
-that stays off.
+in Task Scheduler, or set `StartWhenAvailable` through `Set-ScheduledTask`, and
+a late tick becomes one late run - not the history, and nothing at all for a
+box that stays off.
 
 The durable form does not depend on a machine at all: a hosted scheduler that
 fires whether or not anything on this desk is powered, running the same `POST`
@@ -693,7 +692,6 @@ Whichever host runs it, the freshness rule is the check that matters: no
 `workflow_dispatch` run in the last 40 minutes is a problem even when every log
 line says 204. Nothing on either side announces its own death, so the gap is
 closed by looking at the runs, or by an outside observer of that list.
-
 
 Whether it is working, in two time frames:
 
