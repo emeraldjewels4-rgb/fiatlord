@@ -36,3 +36,14 @@
 !/build/web/index.html
 !/build/web/assets/index-6o21nwvo.css
 !/build/web/assets/index-87a7946b18f5.js
+
+# The maintenance pipeline, and the tests that hold its review and drift paths to
+# drafting only. A test file on its own is not coverage: each one imports the module
+# it covers, so a clone without these four would stop at collection. Credentials are
+# read from .env at run time; nothing in them is a key, a ledger or a build product.
+!/x10_ai.py
+!/x10_agent.py
+!/x10_deploy.py
+!/x10_fuse.py
+!/test_x10_ai_review.py
+!/test_x10_agent.py
