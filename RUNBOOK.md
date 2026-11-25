@@ -430,9 +430,36 @@ snapshot reuse, carried replay, the scheduled write-through, a cold start served
 from storage, the 502 when storage is empty or unreachable, a store that blocks
 forever without delaying the answer, the reported mirror outcome (pending,
 written, unbound, a failing store, and a write the read-back does not confirm),
-and the stored-row probe (cold, warm, no row, no binding, stale row, no write,
+the stored-row probe (cold, warm, no row, no binding, stale row, no write,
 no ticker call, the presence and age it reports for both a stale row and an empty
-table, and the refusal of an unknown flag).
+table, and the refusal of an unknown flag), and the build-identity answer (the
+worker id matching the source, the shell hash, the per-isolate read, and the
+method refusal).
+
+#### Build identity: which code and which page a host serves
+
+`?diag=stored` answers where the prices came from and says nothing about which
+build answered. `GET /api/version` does:
+
+```
+{"ok":true,"worker":"2bee940666de","assets":"d645f7ce2f58"}
+```
+
+- `worker` is sha256 of `build/site-fiatlord.worker.js` with that value zeroed
+  out, so it moves with any edit to the worker and can be recomputed from a
+  clone: `node build/worker-id.mjs`. It is stamped by
+  `node build/worker-id.mjs --write`, and the harness fails when the stamp is
+  stale, so a worker edit without a restamp cannot ship a host that misreports
+  which code it runs.
+- `assets` is the same kind of hash over the shell the host serves. The shell
+  names the bundles by content hash, so rebuilding the staged tree moves it even
+  when the worker is untouched; `null` means the assets binding could not
+  answer.
+
+A deployment that is this clone answers the same two values the clone computes,
+which is what makes "is production what I just built" a single request instead
+of an inference. Neither value says anything about a commit hash: a deploy
+uploads the file verbatim, so there is nothing to inject one at.
 
 #### Caching contract: build/site-fiatlord.worker.js
 

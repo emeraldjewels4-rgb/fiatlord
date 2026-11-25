@@ -1,4 +1,5 @@
-// Static host for the FiatLord shell, plus one API route.
+// Static host for the FiatLord shell, plus the prices route and a build-identity
+// answer.
 //
 // The dashboard polls GET /api/coinspot/prices every 15 s (60 s while hidden)
 // and expects {ok: true, prices: {<code>: {last, bid, ask}}, missing: [...]}.
@@ -24,6 +25,8 @@
 // JSON and would otherwise report "this host answered without JSON" instead of
 // a plain reason. The default cache binding is not permitted on this host; the
 // snapshot is kept in module scope and mirrored into D1 instead.
+// /api/version is the one other answer: it reports which worker and which page
+// this host is running, so a deployment can be compared with a clone in one call.
 
 let lastSnapshot = null; // { prices, fetchedAt }
 
@@ -211,6 +214,15 @@ const ASSET_PREFIX = "/assets/";
 const IMMUTABLE_CACHE = "public, max-age=31536000, immutable";
 const SHELL_CACHE = "no-cache";
 
+// Which build this is. Nothing else in the worker can say: a deployment uploads
+// this file verbatim, so there is no build step to inject a commit, and a host
+// that cannot name the code it runs cannot be compared with a clone. The value
+// is sha256 of this source with the value zeroed out, restamped by
+// build/worker-id.mjs and asserted by the harness -- a stale stamp fails the
+// staging check rather than shipping.
+const WORKER_ID = "2bee940666de";
+const VERSION_PATH = "/api/version";
+
 function toNumber(value) {
   const n = typeof value === "number" ? value : Number(value);
   return Number.isFinite(n) && n > 0 ? n : null;
@@ -332,6 +344,37 @@ async function storedProbe(env) {
   });
 }
 
+// The page's identity, for the other half of the same question: this isolates
+// whether the code is current, not whether the assets are. The shell names the
+// bundles by content hash, so a rebuilt staged tree changes these bytes even
+// when nothing here does. Read once per isolate: the route is a diagnostic, and
+// the prices path must never wait on it.
+let pageIdentity;
+async function pageId(env) {
+  if (pageIdentity !== undefined) return pageIdentity;
+  pageIdentity = null;
+  try {
+    const res = await env.ASSETS.fetch(new Request("https://assets.invalid/index.html"));
+    if (!res.ok) return pageIdentity;
+    const digest = await crypto.subtle.digest("SHA-256", await res.arrayBuffer());
+    const hex = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+    pageIdentity = hex.slice(0, 12);
+  } catch {
+    pageIdentity = null;
+  }
+  return pageIdentity;
+}
+
+// `?diag=stored` answers what the prices came from; this answers what is
+// serving them. They are separate failures: a host can run current code over an
+// old page, and the one curl that compares a deployment with a clone needs both.
+async function versionRoute(request, env) {
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    return json({ ok: false, error: "method not allowed" }, 405);
+  }
+  return json({ ok: true, worker: WORKER_ID, assets: await pageId(env) });
+}
+
 async function pricesRoute(request, env, ctx) {
   if (request.method !== "GET" && request.method !== "HEAD") {
     return json({ ok: false, error: "method not allowed" }, 405);
@@ -429,6 +472,13 @@ export default {
     // with the shell and a 200, which is the exact failure the branches exist to
     // prevent. Anything spelled as an /api path gets an /api answer.
     const path = pathname.toLowerCase();
+    if (path === VERSION_PATH || path === `${VERSION_PATH}/`) {
+      try {
+        return await versionRoute(request, env);
+      } catch {
+        return json({ ok: false, error: "internal error" }, 500);
+      }
+    }
     if (path === PRICES_PATH || path === `${PRICES_PATH}/`) {
       try {
         return await pricesRoute(request, env, ctx);

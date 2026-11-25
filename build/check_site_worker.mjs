@@ -19,6 +19,11 @@
 // Nothing here touches the network or the project files beyond importing the
 // worker.
 
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+
+import { computeWorkerId } from "./worker-id.mjs";
+
 const WORKER = new URL("./site-fiatlord.worker.js", import.meta.url);
 
 const SHELL = "<!doctype html><title>FiatLord live crypto dashboard</title>";
@@ -56,10 +61,13 @@ function isJson(res) {
 // and anything else comes back as the SPA shell with a 200. The shell-under-an-
 // asset-URL case is real, not a contrivance, so the stub reproduces it.
 function host(routes = {}) {
+  const calls = [];
   return {
+    calls,
     ASSETS: {
       async fetch(request) {
         const { pathname } = new URL(request.url);
+        calls.push(pathname);
         const hit = routes[pathname];
         if (!hit) {
           return new Response(SHELL, {
@@ -810,6 +818,56 @@ const CHECKED_TICKER = {
 
   const probe = await call(worker, "/api/coinspot/prices?diag=stored", { method: "POST" });
   eq("the probe keeps the method refusal", probe.response.status, 405);
+}
+
+// --- build identity ----------------------------------------------------------
+
+{
+  // The other half of the diagnostic pair: `?diag=stored` says where the prices
+  // came from, this says what is serving them. The worker cannot know its own
+  // commit -- a deployment uploads the file verbatim -- so it carries a hash of
+  // its own source, and reports the shell's hash for the page it serves. Both
+  // are recomputed from the clone, so one call compares deployment with source.
+  const source = readFileSync(WORKER, "utf8");
+  const expected = computeWorkerId(source);
+  const shellHash = createHash("sha256").update(SHELL, "utf8").digest("hex").slice(0, 12);
+
+  // A fresh isolate: pageId caches per module scope, so this would otherwise
+  // see the value the next block computes.
+  const bare = await call(await load(), "/api/version", { env: {} });
+  const bareBody = jsonBody("version without assets", bare.response, bare.body);
+  eq("version without an assets binding still answers", bare.response.status, 200);
+  eq("version without assets reports no page id", bareBody.assets, null);
+  eq("version without assets keeps the worker id", bareBody.worker, expected);
+
+  const worker = await load();
+  const store = storage(null);
+  const env = { ...host({}), DB: store.db };
+  let upstream = 0;
+  const restore = fetching(async () => {
+    upstream += 1;
+    return ticker(CHECKED_TICKER);
+  });
+  const first = await call(worker, "/api/version", { env });
+  const second = await call(worker, "/api/version", { env });
+  restore();
+
+  const body = jsonBody("version", first.response, first.body);
+  eq("version answers 200 rather than the 501", first.response.status, 200);
+  eq("version says ok", body.ok, true);
+  eq("version reports the worker's content id", body.worker, expected);
+  check("the worker id looks like a content id",
+    /^[0-9a-f]{12}$/.test(String(body.worker)), JSON.stringify(body.worker));
+  eq("version reports the shell's hash", body.assets, shellHash);
+  eq("version does not poll the ticker", upstream, 0);
+  eq("version does not touch the database", store.calls.length, 0);
+  check("version reads the shell once per isolate",
+    env.calls.filter((p) => p === "/index.html").length === 1, JSON.stringify(env.calls));
+  const again = jsonBody("version repeat", second.response, second.body);
+  eq("version repeats the same page id", again.assets, shellHash);
+
+  const post = await call(worker, "/api/version", { method: "POST" });
+  eq("version keeps the method refusal", post.response.status, 405);
 }
 
 // --- unimplemented /api paths -----------------------------------------------
