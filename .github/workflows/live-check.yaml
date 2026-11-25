@@ -21,12 +21,14 @@ name: live-check
 #     the check is exercised at once instead of at the next tick.
 #
 # The file is .yaml, not .yml, because it was renamed once on the theory that a
-# fresh path (and so a fresh workflow id) would make the cron register: the
-# .yml workflow's object had kept its original updated_at through two edits, as
-# if the schedule had never been registered. That did not fix it. The renamed
-# workflow (id 430304567) went active and ran only on push; no schedule run
-# appeared at the 13:00Z or 13:30Z boundary after the rename. Do not rename it
-# again as a fix - see the scheduled-live-check section of RUNBOOK.md.
+# fresh path (and so a fresh workflow id) would make the cron register. That did
+# not fix it, and nothing about this file can: a throwaway probe workflow with a
+# */5 cron registered as its own workflow id, went active, and then produced no
+# schedule run at all across the 14:50Z-15:10Z ticks. No scheduled workflow in
+# this repository has ever fired, so the missing cron is repository-wide. Do not
+# rename this file, edit it, or re-add scheduled probes on the theory that
+# registration is the problem; get runs by dispatch or push instead, and see the
+# scheduled-live-check section of RUNBOOK.md for the evidence.
 
 on:
   schedule:

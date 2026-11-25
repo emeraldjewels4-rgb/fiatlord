@@ -579,17 +579,23 @@ POST /repos/emeraldjewels4-rgb/fiatlord/actions/workflows/live-check.yaml/dispat
 ```
 
 The workflow file is `.yaml` rather than `.yml` because it was renamed once to
-test a theory. The cron in the `.yml` file never fired, and GitHub's object for
-it kept its creation timestamp through two edits, which is what an unregistered
-schedule looks like, so giving it a new path - and therefore a new workflow id -
-was expected to register the trigger afresh.
+test whether a fresh path - and therefore a fresh workflow id - would make the
+cron register. It did not.
 
-It did not work. The renamed workflow (id 430304567) went `active` and ran on
-push only; after the rename there was no `schedule` run at the 13:00Z or 13:30Z
-boundary, or any other. Renaming is not a fix for the missing cron and should
-not be repeated on that theory. Until the real cause is known, treat
-`workflow_dispatch` and pushes as the only triggers that run, and do not count
-on the 30-minute tick: a stale deploy looks exactly like one nobody checked.
+The missing cron is repository-wide, not specific to this workflow. A throwaway
+`.github/workflows/cron-probe.yaml` containing only `on: schedule: - cron: "*/5
+* * * *"` and one `echo` step was committed and registered as its own workflow
+id 430466537, `active`, at 14:47:46Z. It then produced no run of any event
+across the 14:50Z, 14:55Z, 15:00Z, 15:05Z and 15:10Z ticks (watched to 15:12Z),
+and the repository's `schedule`-event count stayed at zero. A minimal scheduled
+workflow that GitHub accepts and lists as `active` while never firing is not a
+problem with a workflow file, so renaming, editing or re-adding probes tests
+nothing: every scheduled workflow here is affected, and the fix has to be at the
+repository or account level, or by triggering runs from outside GitHub.
+
+Until that is done, treat `workflow_dispatch` and pushes as the only triggers
+that run, and do not count on the 30-minute tick: a stale deploy looks exactly
+like one nobody checked.
 
 ```
 python build/check_live.py                        # the production host
