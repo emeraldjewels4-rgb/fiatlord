@@ -10,6 +10,10 @@
 #   RPC_URL=https://...
 # (no token address here: deployments.json holds it, keyed by chain id)
 #   OWNER_KEY=0x...
+# (the operator's key: the address Loveriver.OPERATOR makes owner, and the only key with mint
+#  authority. The five admins and the fee wallet are separate fixed addresses, so no admin key
+#  belongs here. A key that is not the current owner is refused before the first mint and the
+#  run exits 1.)
 #
 # Plain KEY=value lines with no quotes, because the Windows wrapper parses the same file the
 # same way. Default location ops/topup.env (gitignored); override with LOVERIVER_ENV.

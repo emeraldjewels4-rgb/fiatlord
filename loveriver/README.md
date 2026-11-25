@@ -145,9 +145,13 @@ silently redefine "full" either. With nothing recorded and every admin at zero t
 is exactly the state a successful interval fill leaves behind, which is why the recorded
 mark is what makes a top-up work straight afterwards.
 
-Minting is owner-only, so it signs with `OWNER_KEY` and refuses if that key is not the
-token owner. It never moves tokens between admins and never touches the fee wallet. Dry
-run is the default; sending needs `--broadcast` and `LOVERIVER_BROADCAST=yes`.
+Minting is owner-only, and the owner is the operator hard-coded in the token, so it signs with
+`OWNER_KEY` — that operator's key, not one of the admin keys from `wallets.json`, because there
+is no second authority to hand it. Before the first mint it compares the signing address with
+`owner()` and exits `1` without sending anything if they differ, which is exactly what a file
+still holding the key that was the owner before a `transferOwnership()` looks like. It never
+moves tokens between admins and never touches the fee wallet. Dry run is the default; sending
+needs `--broadcast` and `LOVERIVER_BROADCAST=yes`.
 
 ## The year-end mint clock (GMT+11)
 
@@ -231,7 +235,11 @@ a second run logged `nothing to do` and exited `0`; and a trigger set three minu
 started on its own, which is the catch-up a slept-through day relies on.
 
 `ops/topup.env` is gitignored and holds `RPC_URL` and `OWNER_KEY` (plus an optional `NODE` path
-when Task Scheduler's `PATH` cannot find node); copy `ops/topup.env.example` and `chmod 600` it.
+when Task Scheduler's `PATH` cannot find node). That key is the operator's — the address in
+`Loveriver.OPERATOR`, which is the owner and the only mint authority; the five admins and the
+fee wallet are separate addresses fixed in the token, so no admin key from `wallets.json` belongs
+in this file — and a run whose key is not the current owner exits `1` before it mints, so a stale
+key cannot mint quietly. Copy `ops/topup.env.example` and `chmod 600` it.
 The token address is deliberately not in it -- it comes from `deployments.json`. The exit code
 in the log is what to alert on: `0`
 meant it minted or had nothing to do, `1` refused or failed, `2` was misconfigured. Outside a

@@ -69,5 +69,6 @@ echo '  installed:'
 crontab -l | sed -n '/loveriver-topup/,+2p' | sed 's/^/    /'
 if [ ! -r "$ENV_FILE" ]; then
   printf '\n  NOTE: %s does not exist yet, so each run logs "no env file" and exits 2.\n' "$ENV_FILE"
-      echo '        Copy ops/topup.env.example there and fill in RPC_URL and OWNER_KEY (the token is in deployments.json).'
+      echo '        Copy ops/topup.env.example there and fill in RPC_URL and OWNER_KEY (the operator key:'
+      echo '        mint() is owner-only. The token address is not in that file; deployments.json holds it).'
 fi

@@ -158,8 +158,12 @@ the token, and anyone reading this should treat it as exactly that.
 ## 7. Operations
 
 `ops/topup-daily.sh` (cron) and `ops/topup-daily.cmd` (Task Scheduler) run the gated top-up
-daily, load `RPC_URL`, `LOVERIVER_TOKEN` and `OWNER_KEY` from a gitignored env file so the mint
-authority never sits in a task definition, and log to `logs/topup.log` with `===== exit N`.
+daily, load `RPC_URL` and `OWNER_KEY` from a gitignored env file so the mint authority never sits
+in a task definition, and log to `logs/topup.log` with `===== exit N`. The token address is not in
+that file: it comes from `deployments.json`, keyed by the chain id. `OWNER_KEY` is the operator's
+key — `LVR_OPERATOR`, the token's owner and only mint authority; the five admins and the fee
+wallet are separate fixed addresses, so no admin key belongs on that machine — and a run that
+finds it is not the current owner exits 1 before signing anything.
 
 | Exit | Meaning |
 |---|---|
@@ -173,15 +177,15 @@ against local anvil only; no public network was used at any point.
 ## 8. Risks
 
 - **The owner can mint without limit, at any time.** The two-window schedule is tooling, not
-  consensus. Anyone holding `OWNER_KEY` can inflate the supply arbitrarily, including past the
+  consensus. The operator key (`OWNER_KEY`) can inflate the supply arbitrarily, including past the
   mark, outside a window, and in a single transaction.
 - **Deleting the ledger weakens the operator's own accountability.** After ten minutes the
   local record of what was minted, to whom, under which rule is gone. The chain still shows
   it, but only to someone who thinks to look at the chain.
 - **A single mnemonic controls 1,005 wallets.** Whoever holds the 24 words holds every admin
   and distribution key. It is gitignored; a leaked copy or an unignored backup is total loss.
-- **`OWNER_KEY` is plaintext** in the process environment of the scheduled job. A keystore or
-  hardware signer would be better and is not implemented.
+- **The operator key (`OWNER_KEY`) is plaintext** in the process environment of the scheduled
+  job. A keystore or hardware signer would be better and is not implemented.
 - **No market, no liquidity, no value.** Price comes from demand, and nothing here creates
   demand. The token is not legal tender and confers no claim on anything.
 - **Unaudited code, no deployment.** Reviewed by its authors and the test suite only. Smart

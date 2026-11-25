@@ -9,8 +9,12 @@ rem would be visible in the Task Scheduler UI:
 rem
 rem   RPC_URL=https://...
 rem   OWNER_KEY=0x...
-rem (the token address is not here: deployments.json is keyed by the chain id the RPC reports)
 rem   NODE=C:\Program Files\nodejs\node.exe   (optional; node must be found otherwise)
+rem (the token address is not here: deployments.json is keyed by the chain id the RPC reports)
+rem (OWNER_KEY is the operator's key: the address Loveriver.OPERATOR makes owner, and the only
+rem  key with mint authority. The five admins and the fee wallet are separate fixed addresses, so
+rem  no admin key belongs here. A key that is not the current owner is refused before the first
+rem  mint and the run exits 1.)
 rem
 rem Plain KEY=value lines, no quotes and no spaces around "=", because the POSIX wrapper
 rem reads the same file the same way. A line with no "=" is a comment and is skipped.
