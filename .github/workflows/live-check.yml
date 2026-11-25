@@ -7,23 +7,43 @@ name: live-check
 # all keep answering prices until the upstream dies - and the page then falls
 # back to simulated ones without saying why.
 #
-# This runs the same three questions by hand would: which worker is deployed,
-# does it have a database, and does a cold read still carry the stored row.
+# This runs the same three questions a person would ask by hand: which worker is
+# deployed, does it have a database, and does a cold read still carry the row.
 # A stale deploy shows up here as a worker id mismatch, which is also how a
 # half-committed deploy state becomes visible instead of remembered.
+#
+# Three ways to get a run:
+#   - every 30 minutes, from the default branch only (a schedule is ignored on
+#     any other branch);
+#   - by hand: Actions -> live-check -> "Run workflow" (workflow_dispatch), or
+#     `gh workflow run live-check.yml`;
+#   - on any push that touches this file or the check itself, so a change to
+#     the check is exercised at once instead of at the next tick.
 
 on:
   schedule:
     - cron: "*/30 * * * *"
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/live-check.yml
+      - build/check_live.py
 
 permissions:
   contents: read
+
+# One run at a time: a slow run must not pile up behind the schedule, and a
+# manual run should not race a scheduled one against the same row.
+concurrency:
+  group: live-check
+  cancel-in-progress: false
 
 jobs:
   live:
     name: live host
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
@@ -37,5 +57,23 @@ jobs:
         with:
           node-version: "20"
 
+      # tee, not a bare run: the summary step needs the output even when the
+      # check exits non-zero, and pipefail keeps that exit status.
       - name: Deployed worker matches this checkout, and a cold read carries the row
-        run: python build/check_live.py
+        run: |
+          set -o pipefail
+          python build/check_live.py 2>&1 | tee live-check.log
+
+      # Always runs, so a red run still shows which checks failed without
+      # opening the raw log. The job stays failed: the check above is not
+      # marked continue-on-error.
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### live check of the deployed dashboard"
+            echo
+            echo '```'
+            tail -n 40 live-check.log 2>/dev/null || echo "(the check produced no output)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
