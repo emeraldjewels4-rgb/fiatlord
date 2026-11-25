@@ -18,8 +18,14 @@ something:
 3. `GET /api/coinspot/prices?diag=cold` must read that row back and carry it,
    with an age inside the five-minute window.
 
-Step 3 is retried for a few seconds on purpose: the write runs after the prices
-answer, so the first probe can reach the host before the row arrives.
+Every step is retried, and for two different reasons. A deploy is not atomic:
+for up to about a minute old and new isolates answer the same URL, so the first
+`/api/version` can report the previous worker id (or, on an older build, no `db`
+field) and an old isolate refuses `?diag=cold` as an unknown flag. Separately,
+the mirror write runs after the prices answer, so the first cold probe can reach
+the host before the row arrives. A rollout therefore ends as a pass with a note
+saying it matched on try N; a deploy that never landed still fails once the
+retry window (about a minute) is spent, and says so.
 
     python build/check_live.py                      # the production host
     python build/check_live.py --url http://127.0.0.1:8787
@@ -42,10 +48,21 @@ DEFAULT_URL = "https://fiatlord-live-crypto-dashboard-9jx1bv.freebuff.site"
 # Python's own user agent is refused at the edge, so say what this actually is.
 USER_AGENT = "curl/8.0 (fiatlord live check)"
 TIMEOUT = 20
-COLD_TRIES = 5
-COLD_WAIT = 2.0
 WINDOW_MS = 5 * 60 * 1000
 HEX12 = "0123456789abcdef"
+
+# A deploy is not atomic. For up to about a minute the old and the new isolate
+# both answer the same URL, and the old one reports the previous worker id (and,
+# before the `db` field existed, no binding at all) - or refuses `?diag=cold` as
+# an unknown flag. Every step is therefore retried until an isolate gives the
+# expected answer, so shipping does not turn the scheduled run red. A deploy
+# that never landed still fails, once the whole window has been used.
+VERSION_TRIES = 7
+VERSION_WAIT = 5.0
+PRICES_TRIES = 3
+PRICES_WAIT = 2.0
+COLD_TRIES = 8
+COLD_WAIT = 3.0
 
 failures: list[str] = []
 
@@ -79,6 +96,15 @@ def parsed(text: str) -> dict | None:
     return value if isinstance(value, dict) else None
 
 
+def rollout_note(workers: list, wanted: str, tries: int) -> str:
+    """Say whether the misses looked like a deploy in progress or a stale host."""
+    if workers and workers[-1] == wanted:
+        return "matched on try %d of %d; a deploy was propagating" % (tries, tries)
+    seen = list(dict.fromkeys(workers))
+    return "host answered %s over %d tries, so the deployment is old or missing" % (
+        ", ".join(seen), tries)
+
+
 def local_worker_id() -> str:
     """The id this checkout's worker stamps, by the same tool the staging check uses."""
     result = subprocess.run(
@@ -108,29 +134,55 @@ def main(argv: list[str]) -> int:
     print("host   " + base)
     print("clone  worker " + wanted)
 
-    # 1. Which code is deployed, and does it have a database at all.
-    status, text = get(base + "/api/version")
-    version = parsed(text)
+    # 1. Which code is deployed, and does it have a database at all. Retried for
+    #    the rollout window: the previous isolate answers first and is not a
+    #    stale deploy.
+    status, text, version, workers = 0, "", {}, []
+    assets = None
+    for attempt in range(1, VERSION_TRIES + 1):
+        status, text = get(base + "/api/version")
+        version = parsed(text) or {}
+        workers.append(str(version.get("worker")))
+        assets = version.get("assets")
+        if (status == 200 and version.get("worker") == wanted
+                and isinstance(assets, str) and len(assets) == 12
+                and version.get("db") == "bound"):
+            break
+        if attempt < VERSION_TRIES:
+            time.sleep(VERSION_WAIT)
+    if attempt > 1 and version.get("worker") == wanted:
+        print("note   version matched on try %d; a deploy was propagating" % attempt)
+
     check("version answers 200", status == 200, "status %d" % status)
-    check("version is JSON", version is not None, text[:120])
-    version = version or {}
+    check("version is JSON", bool(version), text[:120])
     check("host runs this checkout's worker", version.get("worker") == wanted,
-          "host %r, clone %r" % (version.get("worker"), wanted))
-    assets = version.get("assets")
+          "host %r, clone %r (%s)" % (version.get("worker"), wanted,
+                                      rollout_note(workers, wanted, attempt)))
     check("host reports a page id", isinstance(assets, str) and len(assets) == 12,
           repr(assets))
     check("host has the database bound", version.get("db") == "bound",
           repr(version.get("db")))
 
-    # 2. A live answer writes the row the next cold start would carry.
-    status, text = get(base + "/api/coinspot/prices")
-    prices = parsed(text) or {}
-    check("prices answers 200", status == 200, "status %d" % status)
+    # 2. A live answer writes the row the next cold start would carry. Also
+    #    retried: during a rollout the first prices answer can come from an old
+    #    isolate while the new one is still starting.
+    status, text, prices = 0, "", {}
+    for attempt in range(1, PRICES_TRIES + 1):
+        status, text = get(base + "/api/coinspot/prices")
+        prices = parsed(text) or {}
+        if (status == 200 and prices.get("ok") is True
+                and isinstance(prices.get("prices"), dict) and prices.get("prices")):
+            break
+        if attempt < PRICES_TRIES:
+            time.sleep(PRICES_WAIT)
+    check("prices answers 200", status == 200, "status %d after %d tries" % (status, attempt))
     check("prices carries quotes",
           prices.get("ok") is True and isinstance(prices.get("prices"), dict)
           and len(prices.get("prices") or {}) > 0, text[:120])
 
-    # 3. The cold read, retried: its write is scheduled after the answer above.
+    # 3. The cold read, retried for two reasons at once: its write is scheduled
+    #    after the prices answer, and an isolate that still runs the old worker
+    #    refuses `?diag=cold` as an unknown flag.
     status, text, cold = 0, "", {}
     for attempt in range(1, COLD_TRIES + 1):
         status, text = get(base + "/api/coinspot/prices?diag=cold")
@@ -139,9 +191,12 @@ def main(argv: list[str]) -> int:
             break
         if attempt < COLD_TRIES:
             time.sleep(COLD_WAIT)
+    if attempt > 1 and status == 200:
+        print("note   cold read answered on try %d; a deploy or a write was settling" % attempt)
 
     check("cold read answers 200", status == 200,
-          "status %d after %d tries: %s" % (status, COLD_TRIES, text[:160]))
+          "status %d after %d tries over %ds: %s"
+          % (status, COLD_TRIES, int(COLD_TRIES * COLD_WAIT), text[:160]))
     check("cold read is marked cold", cold.get("diag") == "cold" and cold.get("cleared") is True,
           "diag %r, cleared %r" % (cold.get("diag"), cold.get("cleared")))
     check("cold read came from storage", cold.get("source") == "stored",
