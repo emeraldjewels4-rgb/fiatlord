@@ -660,6 +660,66 @@ const CHECKED_TICKER = {
 }
 
 {
+  // Polling must not spend the write allowance: a row younger than a minute is
+  // left alone, and the answer says so rather than claiming a write. Storage is
+  // read to decide, so the skip is judged on the row's age, not this host's.
+  fakeNow = realNow();
+  const fresh = {
+    fetched_at: fakeNow - 30_000,
+    prices: JSON.stringify({ btc: { last: 90000, bid: 89900, ask: 90100 } }),
+  };
+  const store = storage(fresh);
+  const exec = execution();
+  const worker = await load();
+  const env = { ...host({}), DB: store.db };
+  const restore = fetching(async () => ticker(CHECKED_TICKER));
+  await call(worker, "/api/coinspot/prices", { env, ctx: exec.ctx });
+  await exec.settle();
+  const again = await call(worker, "/api/coinspot/prices", { env, ctx: exec.ctx });
+  restore();
+
+  const body = jsonBody("fresh row skip", again.response, again.body);
+  eq("a fresh row is not rewritten", body.snapshot?.state, "fresh");
+  eq("the skip names the stored time", body.snapshot?.storedAt, fresh.fetched_at);
+  eq("the skip names the stored age", body.snapshot?.ageMs, 30_000);
+  eq("the skip carries no error", body.snapshot?.error, undefined);
+  check("a fresh row costs no write",
+    !store.calls.some((c) => /INSERT/i.test(c.sql)),
+    JSON.stringify(store.calls.map((c) => c.sql)));
+  check("a fresh row is not rewritten by hand either",
+    store.state.row?.fetched_at === fresh.fetched_at,
+    JSON.stringify(store.state.row));
+}
+
+{
+  // Past the threshold the row is replaced, so a page left open for hours still
+  // keeps the carry current and the window never expires while the feed is up.
+  fakeNow = realNow();
+  const old = {
+    fetched_at: fakeNow - 90_000,
+    prices: JSON.stringify({ btc: { last: 90000, bid: 89900, ask: 90100 } }),
+  };
+  const store = storage(old);
+  const exec = execution();
+  const worker = await load();
+  const env = { ...host({}), DB: store.db };
+  const restore = fetching(async () => ticker(CHECKED_TICKER));
+  const { response, body: text } = await call(worker, "/api/coinspot/prices",
+    { env, ctx: exec.ctx });
+  await exec.settle();
+  const again = await call(worker, "/api/coinspot/prices", { env, ctx: exec.ctx });
+  restore();
+
+  const first = jsonBody("stale row write", response, text);
+  const body = jsonBody("stale row written", again.response, again.body);
+  check("a row past a minute is rewritten",
+    store.calls.some((c) => /INSERT/i.test(c.sql)),
+    JSON.stringify(store.calls.map((c) => c.sql)));
+  eq("the rewrite is reported as written", body.snapshot?.state, "written");
+  eq("the rewrite stores the new fetch time", store.state.row?.fetched_at, first.fetchedAt);
+}
+
+{
   // Without a binding there is nothing to mirror into, and the answer has to say
   // so rather than looking exactly like a successful write.
   fakeNow = null;

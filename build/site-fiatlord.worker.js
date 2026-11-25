@@ -70,6 +70,14 @@ function schema(db) {
 // if they were current. Anything older than this is treated as absent.
 const STORED_MAX_AGE_MS = 5 * 60_000;
 
+// Writing on every poll would spend the database's monthly write allowance for
+// nothing: the row only has to be recent enough to carry, not as new as the
+// answer. A row younger than this is left alone, so a dashboard polling every
+// 15 s costs about one write a minute instead of four, and the carry window is
+// still five minutes. The threshold is the row's age, not this isolate's, so a
+// fresh row written elsewhere counts too.
+const MIRROR_MIN_INTERVAL_MS = 60_000;
+
 // The read is the one database call that has to happen before an answer: on a
 // cold start with the upstream down it is the only thing that can. It does not
 // create the table, because a missing table means nothing was ever written, and
@@ -145,8 +153,9 @@ async function confirmSnapshot(db, fetchedAt) {
 // The last mirror attempt made by this isolate, reported in every prices answer.
 // The write itself runs after the response, so an answer describes the attempt
 // that finished before it: "pending" means one is in flight, "written" means the
-// row was read back, "failed" carries the reason, and "unbound" means this host
-// was given no database at all.
+// row was read back, "fresh" means the row was recent enough to leave alone,
+// "failed" carries the reason, and "unbound" means this host was given no
+// database at all.
 let mirrorState = { state: "idle" };
 
 // The write and its table creation are background work, not part of the answer.
@@ -166,6 +175,19 @@ function mirror(env, ctx, snapshot) {
   }
   mirrorState = { state: "pending", fetchedAt: snapshot.fetchedAt };
   const work = (async () => {
+    // Skipped writes are reported rather than hidden: "fresh" says the row was
+    // already recent enough, which is a different outcome from "written" and
+    // from a failure, and it is what keeps a polling page off the write quota.
+    const row = await storedRow(db);
+    if (row.state === "present" && row.ageMs >= 0 && row.ageMs < MIRROR_MIN_INTERVAL_MS) {
+      mirrorState = {
+        state: "fresh",
+        fetchedAt: snapshot.fetchedAt,
+        storedAt: row.snapshot.fetchedAt,
+        ageMs: row.ageMs,
+      };
+      return;
+    }
     const written = await writeSnapshot(db, snapshot);
     if (!written.ok) {
       mirrorState = { state: "failed", fetchedAt: snapshot.fetchedAt, error: written.error };
@@ -220,7 +242,7 @@ const SHELL_CACHE = "no-cache";
 // is sha256 of this source with the value zeroed out, restamped by
 // build/worker-id.mjs and asserted by the harness -- a stale stamp fails the
 // staging check rather than shipping.
-const WORKER_ID = "abe9be43a9ed";
+const WORKER_ID = "cc9c6315767d";
 const VERSION_PATH = "/api/version";
 
 function toNumber(value) {
