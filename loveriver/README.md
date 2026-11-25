@@ -510,7 +510,9 @@ fails. The record check runs on every commit, scoped or not — a redeploy write
 and would otherwise never look — and skips cleanly on a machine with no broadcast to be stale
 against. The selftests run only when the commit stages something under `loveriver/` or `.githooks/`,
 and print `SKIPPED` with the paths they saw otherwise: a regtest- or threads-only commit costs half
-a second instead of half a minute, without the gate ever going quiet unexplained.
+a second instead of half a minute, without the gate ever going quiet unexplained. Because the hook
+only fires on a commit, the days with none are covered by `ops/install-record-check-cron.sh` (cron)
+and `ops/install-record-check-task.ps1` (Task Scheduler), which schedule the same check nightly.
 
 `core.hooksPath` is per-clone configuration and no commit can carry it, so a clone has no gate at
 all until it is set there:
