@@ -553,11 +553,14 @@ and the new isolate both answer, and the old one reports the previous worker id,
 omits `db`, and refuses `?diag=cold` as an unknown flag. The tolerance is short
 on purpose, about 15 s in total (`/api/version` 4 tries 3 s apart, the cold read
 4 tries 1.5 s apart), because a rollout is measured in seconds and every second
-here is a second a stale deploy keeps answering ok. A rollout ends as a pass
-with a note saying how long it took (`version matched after 6.2s (try 3); a
-deploy was propagating`); a deploy that never landed fails and says how long it
-waited: `host answered <id> after 9.1s of retries, so the deployment is old or
-missing`.
+here is a second a stale deploy keeps answering ok. `/api/version` must match
+twice in a row, because a single lucky probe also comes out of a host flapping
+between the two builds. A rollout ends as a pass with a note saying how long it
+took (`version matched twice in a row after 6.1s (try 3); a deploy was
+propagating`); a deploy that never landed fails and says how long it waited:
+`host answered <id> after 9.1s of retries, so the deployment is old or missing`,
+and a host that never settles fails as `matched only on the last try after
+9.0s, never twice in a row: the host is alternating between <old>, <new>`.
 
 Exit 1 lists every failed check, and the reason narrows the cause: a worker id
 mismatch is a deploy that is not this checkout, `db: "unbound"` is a deploy

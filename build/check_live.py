@@ -23,9 +23,11 @@ for a few seconds old and new isolates answer the same URL, so the first
 `/api/version` can report the previous worker id (or, on an older build, no `db`
 field) and an old isolate refuses `?diag=cold` as an unknown flag. Separately,
 the mirror write runs after the prices answer, so the first cold probe can reach
-the host before the row arrives. A rollout therefore ends as a pass with a note
-saying how long it took; a deploy that never landed still fails after about 15 s
-of retries, and the failure says how long it waited.
+the host before the row arrives. `/api/version` must match twice in a row, since
+a single lucky probe also comes out of a host that is flapping between the two
+builds. A rollout therefore ends as a pass with a note saying how long it took;
+a deploy that never landed, or one whose answers never settle, still fails after
+about 15 s of retries, and the failure says how long it waited.
 
     python build/check_live.py                      # the production host
     python build/check_live.py --url http://127.0.0.1:8787
@@ -62,7 +64,13 @@ HEX12 = "0123456789abcdef"
 # answering ok. Longer than this has only been seen on a handful of deploys, and
 # the failure names how long it waited so that case is visible rather than
 # guessed at.
+#
+# The version answer must match twice in a row: a host that is flapping between
+# old and new isolates answers correctly on any single probe, and one lucky probe
+# is not a landed deploy. Two consecutive matches cannot both come from the old
+# build, so a flapping host fails instead of passing.
 VERSION_TRIES = 4
+VERSION_MATCHES = 2
 VERSION_WAIT = 3.0
 PRICES_TRIES = 2
 PRICES_WAIT = 1.0
@@ -103,11 +111,12 @@ def parsed(text: str) -> dict | None:
 
 def rollout_note(workers: list, wanted: str, waited: float) -> str:
     """Say whether the misses looked like a deploy in progress or a stale host."""
+    seen = ", ".join(dict.fromkeys(workers))
     if workers and workers[-1] == wanted:
-        return "matched after %.1fs; a deploy was propagating" % waited
-    seen = list(dict.fromkeys(workers))
+        return ("matched only on the last try after %.1fs, never twice in a row: "
+                "the host is alternating between %s" % (waited, seen))
     return ("host answered %s after %.1fs of retries, so the deployment is old or "
-            "missing" % (", ".join(seen), waited))
+            "missing" % (seen, waited))
 
 
 def local_worker_id() -> str:
@@ -144,28 +153,34 @@ def main(argv: list[str]) -> int:
     #    stale deploy.
     status, text, version, workers = 0, "", {}, []
     assets = None
+    matches = 0
     started = time.monotonic()
     for attempt in range(1, VERSION_TRIES + 1):
         status, text = get(base + "/api/version")
         version = parsed(text) or {}
         workers.append(str(version.get("worker")))
         assets = version.get("assets")
-        if (status == 200 and version.get("worker") == wanted
-                and isinstance(assets, str) and len(assets) == 12
-                and version.get("db") == "bound"):
+        matched = (status == 200 and version.get("worker") == wanted
+                   and isinstance(assets, str) and len(assets) == 12
+                   and version.get("db") == "bound")
+        matches = matches + 1 if matched else 0
+        if matches >= VERSION_MATCHES:
             break
         if attempt < VERSION_TRIES:
             time.sleep(VERSION_WAIT)
     waited = time.monotonic() - started
-    if attempt > 1 and version.get("worker") == wanted:
-        print("note   version matched after %.1fs (try %d); a deploy was propagating"
-              % (waited, attempt))
+    if matches >= VERSION_MATCHES and attempt > matches:
+        print("note   version matched twice in a row after %.1fs (try %d); a deploy "
+              "was propagating" % (waited, attempt))
 
     check("version answers 200", status == 200, "status %d" % status)
     check("version is JSON", bool(version), text[:120])
-    check("host runs this checkout's worker", version.get("worker") == wanted,
-          "host %r, clone %r (%s)" % (version.get("worker"), wanted,
-                                      rollout_note(workers, wanted, waited)))
+    landed = matches >= VERSION_MATCHES
+    shown = version.get("worker")
+    which = ("host and clone are both %r" % wanted if shown == wanted
+             else "host %r, clone %r" % (shown, wanted))
+    check("host runs this checkout's worker twice in a row", landed,
+          "%s (%s)" % (which, rollout_note(workers, wanted, waited)))
     check("host reports a page id", isinstance(assets, str) and len(assets) == 12,
           repr(assets))
     check("host has the database bound", version.get("db") == "bound",
