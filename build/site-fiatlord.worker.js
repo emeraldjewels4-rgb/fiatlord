@@ -220,7 +220,7 @@ const SHELL_CACHE = "no-cache";
 // is sha256 of this source with the value zeroed out, restamped by
 // build/worker-id.mjs and asserted by the harness -- a stale stamp fails the
 // staging check rather than shipping.
-const WORKER_ID = "2bee940666de";
+const WORKER_ID = "abe9be43a9ed";
 const VERSION_PATH = "/api/version";
 
 function toNumber(value) {
@@ -304,8 +304,21 @@ function carried(snapshot) {
 // when it is too old to carry, so an expired row is visibly ignored rather than
 // indistinguishable from an empty table.
 const DIAG_STORED = "stored";
+// The same read, made reproducible. The probe cannot otherwise say what a fresh
+// isolate would answer: a host reports `warm` whenever a live fetch has run in
+// it, and whether the next request lands on such a host is routing luck, not
+// something a caller can ask for. `?diag=cold` lets go of this isolate's module
+// snapshot and then runs exactly the cold-start branch -- read the row, carry
+// it -- so one request always takes the path a newly booted isolate takes.
+// Nothing is deleted from storage and no write happens: only memory is dropped,
+// and the next ordinary request refetches as it would on a host that had never
+// answered, so the prices path is unchanged.
+const DIAG_COLD = "cold";
+const DIAG_VALUES = [DIAG_STORED, DIAG_COLD];
 
-async function storedProbe(env) {
+async function storedProbe(env, diag = DIAG_STORED) {
+  const cleared = diag === DIAG_COLD;
+  if (cleared) lastSnapshot = null;
   const isolate = lastSnapshot ? "warm" : "cold";
   const row = await storedRow(env?.DB);
   // Always reported, used or not: `present` with an age past the window is the
@@ -324,9 +337,10 @@ async function storedProbe(env) {
     return json(
       {
         ok: false,
-        diag: DIAG_STORED,
+        diag,
         source: "none",
         isolate,
+        cleared,
         error,
         stored,
         snapshot: mirrorState,
@@ -335,9 +349,10 @@ async function storedProbe(env) {
     );
   }
   return json({
-    diag: DIAG_STORED,
+    diag,
     source: "stored",
     isolate,
+    cleared,
     ageMs: row.ageMs,
     stored,
     ...carriedBody(row.snapshot),
@@ -380,17 +395,17 @@ async function pricesRoute(request, env, ctx) {
     return json({ ok: false, error: "method not allowed" }, 405);
   }
 
-  // Only the one documented value is accepted: a mistyped flag must not quietly
+  // Only the documented values are accepted: a mistyped flag must not quietly
   // turn into an ordinary live answer that looks like the probe succeeded.
   const diag = new URL(request.url).searchParams.get("diag");
   if (diag !== null) {
-    if (diag !== DIAG_STORED) {
+    if (!DIAG_VALUES.includes(diag)) {
       return json(
-        { ok: false, error: "unknown diag", accepted: DIAG_STORED },
+        { ok: false, error: "unknown diag", accepted: DIAG_VALUES },
         400,
       );
     }
-    return storedProbe(env);
+    return storedProbe(env, diag);
   }
 
   const age = lastSnapshot ? Date.now() - lastSnapshot.fetchedAt : Infinity;

@@ -425,6 +425,48 @@ const CHECKED_TICKER = {
 }
 
 {
+  // The reproducible half of the same question. Which host answers is routing's
+  // business, so `?diag=cold` drops the module snapshot first and then takes the
+  // cold-start branch: one request always exercises the path a newly booted
+  // isolate takes. The row says 90000 where the ticker said 93050, so memory
+  // cannot be what answers, and no write may happen.
+  fakeNow = realNow();
+  const stored = {
+    fetched_at: fakeNow - 20_000,
+    prices: JSON.stringify({ btc: { last: 90000, bid: 89900, ask: 90100 } }),
+  };
+  const store = storage(stored);
+  const worker = await load();
+  const restore = fetching(async () => ticker(CHECKED_TICKER));
+  await call(worker, "/api/coinspot/prices", { env: host({}) });
+  restore();
+
+  const { response, body: text } = await call(worker, "/api/coinspot/prices?diag=cold",
+    { env: { ...host({}), DB: store.db } });
+  const body = jsonBody("cold diag", response, text);
+  eq("a cold diag answers", response.status, 200);
+  eq("a cold diag names itself", body.diag, "cold");
+  eq("a cold diag reports a cold host", body.isolate, "cold");
+  eq("a cold diag says it dropped memory", body.cleared, true);
+  eq("a cold diag reads the row", body.source, "stored");
+  num("a cold diag carries the stored price", body.prices?.btc?.last, 90000);
+  eq("a cold diag keeps the stored time", body.carriedAt, stored.fetched_at);
+  num("a cold diag keeps the stored age", body.ageMs, 20_000);
+  check("a cold diag reads the snapshot table",
+    store.calls.some((c) => /SELECT fetched_at, prices FROM price_snapshot/.test(c.sql)),
+    JSON.stringify(store.calls.map((c) => c.sql)));
+  check("a cold diag writes nothing",
+    !store.calls.some((c) => /^\s*(INSERT|CREATE|DELETE|UPDATE)/i.test(c.sql)),
+    JSON.stringify(store.calls.map((c) => c.sql)));
+
+  const after = await call(worker, "/api/coinspot/prices?diag=stored",
+    { env: { ...host({}), DB: store.db } });
+  const afterBody = jsonBody("stored probe after a cold diag", after.response, after.body);
+  eq("a dropped snapshot leaves the host cold", afterBody.isolate, "cold");
+  eq("an ordinary probe reports no clearing", afterBody.cleared, false);
+}
+
+{
   // Nothing to probe with: the probe has to say which of the two reasons it is,
   // since "no row" and "no database" are different things to fix.
   fakeNow = null;
@@ -506,7 +548,8 @@ const CHECKED_TICKER = {
 
   const body = jsonBody("unknown diag", response, text);
   eq("an unknown diag is refused", response.status, 400);
-  eq("an unknown diag names the accepted value", body.accepted, "stored");
+  eq("an unknown diag names the accepted values", JSON.stringify(body.accepted),
+    JSON.stringify(["stored", "cold"]));
   eq("an unknown diag does not poll", upstream, 0);
 }
 
