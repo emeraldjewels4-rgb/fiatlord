@@ -668,6 +668,33 @@ Dispatches are not deduplicated against scheduled runs, so both would simply
 run; `event` in the run list tells them apart, and nothing has to be deleted
 when the cron comes back.
 
+That machine is not always on, and this is the fallback's own version of the
+problem it exists to catch. Sleep, a shutdown, or a reboot that nobody logs into
+skips the tick outright: `schtasks` records nothing for a start it could not
+make, so a week of ticks can be lost with a clean log, the task still `Ready`
+and no run anywhere to fail. `schtasks /create` has no switch for the catch-up
+setting; check "Run task as soon as possible after a scheduled start is missed"
+in Task Scheduler, or set `StartWhenAvailable` through `Set-ScheduledTask`, and a
+late tick becomes one late run - not the history, and nothing at all for a box
+that stays off.
+
+The durable form does not depend on a machine at all: a hosted scheduler that
+fires whether or not anything on this desk is powered, running the same `POST`
+with the token in that platform's secret store instead of a file. A Cloudflare
+Worker with a `scheduled()` handler fits, since the project already ships
+Workers: the token goes in through `wrangler secret put`, so it is in neither
+the repo nor `wrangler.jsonc` nor this machine's filesystem, and the cron line
+lives in that Worker's config. It needs its own Worker and its own trigger - a
+`*/30` cron on the existing production Worker would put the dispatcher inside
+the thing it checks - and it keeps a smaller version of the same blind spot: a
+broken account or a failed deploy is silent until someone reads the run list.
+
+Whichever host runs it, the freshness rule is the check that matters: no
+`workflow_dispatch` run in the last 40 minutes is a problem even when every log
+line says 204. Nothing on either side announces its own death, so the gap is
+closed by looking at the runs, or by an outside observer of that list.
+
+
 Whether it is working, in two time frames:
 
 - within a minute of a tick: the log line says 204, and
