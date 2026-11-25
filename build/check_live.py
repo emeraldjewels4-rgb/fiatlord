@@ -222,7 +222,13 @@ def main(argv: list[str]) -> int:
     check("version is JSON", bool(version), text[:120])
     landed = matches >= VERSION_MATCHES
     shown = version.get("worker")
-    if not landed and shown != wanted:
+    # "Behind" is only the harmless case when the answer is otherwise healthy.
+    # An older build that also lost its binding, or reports no page id, is a
+    # broken deployment whether or not its commit can be named, so it must fall
+    # through to the failures below rather than become a warning on a green run.
+    healthy = (status == 200 and isinstance(assets, str) and len(assets) == 12
+               and version.get("db") == "bound")
+    if not landed and shown != wanted and healthy:
         older = deployed_commit(str(shown))
         if older is not None:
             deployed, waiting = older

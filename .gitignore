@@ -47,4 +47,7 @@
 !/x10_fuse.py
 !/test_x10_ai_review.py
 !/test_x10_agent.py
+# The live check's own regression test: it drives build/check_live.py against a
+# local host, so it belongs with the check rather than with the pipeline tests.
+!/test_check_live_undeployed.py
 !/requirements.txt
