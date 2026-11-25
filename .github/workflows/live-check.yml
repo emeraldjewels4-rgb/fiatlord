@@ -45,7 +45,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      # Full history: an undeployed host is named by the commit whose worker id
+      # it still runs, which means walking back over the worker's own commits.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -58,15 +62,27 @@ jobs:
           node-version: "20"
 
       # tee, not a bare run: the summary step needs the output even when the
-      # check exits non-zero, and pipefail keeps that exit status.
+      # check exits non-zero, and pipefail keeps that exit status. Exit 3 is the
+      # one deliberately non-red outcome: the host is healthy but runs an older
+      # commit, so it becomes a warning annotation that names that commit instead
+      # of a failure indistinguishable from a broken deployment.
       - name: Deployed worker matches this checkout, and a cold read carries the row
         run: |
           set -o pipefail
+          set +e
           python build/check_live.py 2>&1 | tee live-check.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          if [ "$rc" -eq 3 ]; then
+            echo "::warning title=Undeployed worker commits::$(grep -m1 '^warning  the host' live-check.log | sed 's/^warning  //')"
+            echo "deployed host is behind this checkout; see the summary below"
+            exit 0
+          fi
+          exit "$rc"
 
       # Always runs, so a red run still shows which checks failed without
-      # opening the raw log. The job stays failed: the check above is not
-      # marked continue-on-error.
+      # opening the raw log. The job stays failed unless the check exited 3,
+      # which the step above turns into a warning on a green run.
       - name: Summary
         if: always()
         run: |
@@ -76,4 +92,10 @@ jobs:
             echo '```'
             tail -n 40 live-check.log 2>/dev/null || echo "(the check produced no output)"
             echo '```'
+            if grep -q '^warning  the host is not broken' live-check.log 2>/dev/null; then
+              echo
+              echo "> The host is healthy and runs an older commit of this
+              > checkout; the commit named above has not been deployed yet.
+              > This run is a warning, not a failure."
+            fi
           } >> "$GITHUB_STEP_SUMMARY"

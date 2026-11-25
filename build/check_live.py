@@ -29,16 +29,26 @@ builds. A rollout therefore ends as a pass with a note saying how long it took;
 a deploy that never landed, or one whose answers never settle, still fails after
 about 15 s of retries, and the failure says how long it waited.
 
+A host that simply runs an older build is not broken, so it is not reported as
+a failure: when the reported worker id is the one stamped by an ancestor commit,
+the check names that commit and the worker commits after it that are not
+deployed, and exits 3 so the workflow can turn it into a warning. A worker id
+that is not in this history at all stays a failure - that is a deployment from
+something other than this checkout, not a commit waiting to be shipped.
+
     python build/check_live.py                      # the production host
     python build/check_live.py --url http://127.0.0.1:8787
 
-Exit codes: 0 every check answered as expected, 1 a check failed, 2 usage.
+Exit codes: 0 every check answered as expected, 1 a check failed, 2 usage,
+            3 the host runs an older build of this checkout (warning, not
+            failure): the named worker commits are not deployed yet.
 """
 from __future__ import annotations
 
 import argparse
 import json
 import pathlib
+import re
 import subprocess
 import sys
 import time
@@ -52,6 +62,8 @@ USER_AGENT = "curl/8.0 (fiatlord live check)"
 TIMEOUT = 20
 WINDOW_MS = 5 * 60 * 1000
 HEX12 = "0123456789abcdef"
+WORKER_SOURCE = "build/site-fiatlord.worker.js"
+STAMP = re.compile(r'const WORKER_ID = "([0-9a-f]{12})"')
 
 # A deploy is not atomic. For a few seconds the old and the new isolate both
 # answer the same URL, and the old one reports the previous worker id (and,
@@ -119,6 +131,39 @@ def rollout_note(workers: list, wanted: str, waited: float) -> str:
             "missing" % (seen, waited))
 
 
+def git(*args: str) -> str:
+    """One git command at the repository root; empty output means it failed."""
+    try:
+        done = subprocess.run(["git", *args], cwd=str(ROOT), capture_output=True,
+                              text=True, errors="replace")
+    except OSError:
+        return ""
+    return done.stdout if done.returncode == 0 else ""
+
+
+def deployed_commit(host_id: str) -> tuple[str, list[str]] | None:
+    """The commit whose stamped worker id the host runs, and what came after it.
+
+    Returns (that commit, worker commits after it that are not deployed), or None
+    when the host's id is not in this history - which means the deployment is not
+    from this checkout, a different thing from a commit waiting to be shipped.
+    Walks back over the commits that touched the worker source, so it costs one
+    `git show` per change rather than per commit. A shallow clone simply finds
+    nothing, and the caller keeps its plain failure.
+    """
+    if len(host_id) != 12 or any(c not in HEX12 for c in host_id):
+        return None
+    for sha in git("log", "--format=%H", "--", WORKER_SOURCE).split():
+        stamp = STAMP.search(git("show", "%s:%s" % (sha, WORKER_SOURCE)))
+        if not stamp or stamp.group(1) != host_id:
+            continue
+        waiting = [line for line in
+                   git("log", "--format=%h %s", "%s..HEAD" % sha, "--", WORKER_SOURCE)
+                   .splitlines() if line.strip()]
+        return git("log", "-1", "--format=%h %s", sha).strip(), waiting
+    return None
+
+
 def local_worker_id() -> str:
     """The id this checkout's worker stamps, by the same tool the staging check uses."""
     result = subprocess.run(
@@ -177,6 +222,22 @@ def main(argv: list[str]) -> int:
     check("version is JSON", bool(version), text[:120])
     landed = matches >= VERSION_MATCHES
     shown = version.get("worker")
+    if not landed and shown != wanted:
+        older = deployed_commit(str(shown))
+        if older is not None:
+            deployed, waiting = older
+            print()
+            print("warning  the host is not broken, it is behind: it runs the worker from")
+            print("warning    " + deployed)
+            if waiting:
+                print("warning  %d worker commit(s) after it are not deployed:" % len(waiting))
+                for line in waiting:
+                    print("warning    " + line)
+            else:
+                print("warning  no later worker commit is waiting, so the host runs a "
+                      "rebuild of that commit")
+            print("warning  deploy this checkout to clear this; nothing failed")
+            return 3
     which = ("host and clone are both %r" % wanted if shown == wanted
              else "host %r, clone %r" % (shown, wanted))
     check("host runs this checkout's worker twice in a row", landed,

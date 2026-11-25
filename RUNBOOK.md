@@ -257,6 +257,42 @@ earlier run, and this one will not add to it.
 The scheduled web9999 maintenance is separate from the sweep above. The task
 names are `x10_agent`, `x10_ai_review`, `x10_autoip` and `x10_mirror_push`.
 
+### What the pipeline reads from .env
+
+Every deployment detail lives in `.env` at the repository root, which is
+git-ignored; no tracked script names this account. A variable that has no
+default below is **required**, and its absence is a refusal that names it rather
+than a guess: `x10_deploy.py status` without `.env` prints
+`no X10_REMOTE_DIR in .env: hosted paths and database names are deployment data,
+so nothing here guesses them`. The process environment wins over the file; a
+missing file is simply an empty set.
+
+| Variable | Required | What it is |
+|---|---|---|
+| `X10_REMOTE_DIR` | yes | the account's `public_html` path on the host, e.g. `/home/<user>/public_html`. `X10_API_REMOTE` and `X10_API_WORK_DIR` derive from it |
+| `X10_SITE_DB` | yes | the site database: `x10_deploy.py` records uploads in its `web9999_deploys` table, and `x10_agent`/`x10_ai` read it |
+| `X10_DB_HOST` | yes | MySQL server `x10_fuse` connects to |
+| `X10_DB_NAME` | yes | the mirror database `x10_fuse` writes (`x10_fuse.py push`) |
+| `X10_DB_USER` | yes | MySQL user, granted to `X10_DB_NAME` and `X10_SITE_DB` |
+| `X10_DB_PASSWORD` | yes | that user's password |
+| `X10_DB_PORT` | no, `3306` | MySQL port |
+| `X10_CPANEL_HOST` | yes for `x10_deploy` | cPanel server host or URL; the API is called at `https://<host>:<port>` |
+| `X10_CPANEL_PORT` | yes for `x10_deploy` | cPanel API port, normally `2083` |
+| `X10_CPANEL_USER` | yes for `x10_deploy` | cPanel account user |
+| `X10_CPANEL_TOKEN` | yes for `x10_deploy` | cPanel API token; `push`/`pull` refuse without it |
+| `X10_API_SOURCE` | no, `build/web/api/web9999` | the local API tree that `push_api` uploads |
+| `X10_API_REMOTE` | no, `$X10_REMOTE_DIR/api/web9999` | where that tree is deployed on the host |
+| `X10_API_WORK_DIR` | no, the parent of `X10_REMOTE_DIR` + `/.x10-api-deploy` | staging and backup directory used while the API directory is swapped |
+| `X10_LIVE_URL` | no, the published page | origin `x10_deploy.py verify` fetches |
+| `AI_API_KEY` (or `OPENAI_API_KEY`) | only for `x10_ai.py review` | key for the drafting endpoint; without it `review` exits 3 and changes nothing |
+| `AI_API_BASE` | no, `https://api.openai.com/v1` | any OpenAI-compatible chat-completions endpoint |
+| `AI_MODEL` | no, `gpt-4o-mini` | model `review` asks for a patch |
+
+The values are credentials and account identity: keep them in `.env`, never in a
+command line, a chat or a commit. `README.md` covers what each tool does with
+them; this table is only what a fresh checkout has to set before any of them can
+run.
+
 ### Published host: FiatLord dashboard
 
 **Production is the live dashboard**:
@@ -562,12 +598,20 @@ propagating`); a deploy that never landed fails and says how long it waited:
 and a host that never settles fails as `matched only on the last try after
 9.0s, never twice in a row: the host is alternating between <old>, <new>`.
 
-Exit 1 lists every failed check, and the reason narrows the cause: a worker id
-mismatch is a deploy that is not this checkout, `db: "unbound"` is a deploy
+There are two outcomes for a worker id that does not match, and they are no
+longer the same colour. If the id is the stamp of an ancestor commit, the host
+is healthy and simply runs an older build: the check names that commit, lists
+the worker commits after it that are not deployed, and exits 3, which the
+workflow turns into a `::warning::` annotation and a green run with the reason
+in the summary. If the id is in no commit in the history - a deployment from
+somewhere other than this checkout, or a clone too shallow to walk the worker's
+commits - it stays exit 1. Deploying from uncommitted work therefore still shows
+as a failure, because there is no commit to name.
+
+Exit 1 lists every failed check, and the reason narrows the cause: an unknown
+worker id is a deploy that is not this checkout, `db: "unbound"` is a deploy
 that lost its binding, and a 502 from the cold read is storage that is present
-but too old, unreadable, or empty. The workflow compares against the default
-branch, so deploying from uncommitted work shows as a mismatch until that work
-is committed - which is what it is for.
+but too old, unreadable, or empty.
 
 #### Caching contract: build/site-fiatlord.worker.js
 
