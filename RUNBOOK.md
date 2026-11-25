@@ -294,6 +294,50 @@ bytes are copied verbatim, so the deploy publishes exactly what `build/web`
 holds now. Exit 1 means the page cannot be served as it stands - a referenced
 file is missing - and the tree should not be published until it resolves.
 
+#### Deploying from a clone: wrangler.jsonc
+
+`build/site-fiatlord.deploy.json` targets Freebuff Sites and names a site and a
+database that belong to this account. `wrangler.jsonc` is the same deployment
+for any Cloudflare account: the worker as `main`, `build/site-fiatlord` as its
+assets with the SPA fallback behind the worker, and D1 bound as `DB`. Only the
+database id needs editing.
+
+1. Create the database, then paste the id it prints into `wrangler.jsonc`:
+
+```
+npx wrangler login
+npx wrangler d1 create fiatlord-prices
+```
+
+2. Stage the assets, then apply the schema:
+
+```
+python build/make_site_fiatlord.py
+npx wrangler d1 execute fiatlord-prices --remote --file build/site-fiatlord.schema.sql
+```
+
+   Step 2 is optional - the worker creates the table on its first successful
+   write - but doing it now means a wrong binding shows up immediately instead of
+   as a carry-over that silently never appears.
+
+3. Deploy, then let a real quote seed the row:
+
+```
+npx wrangler deploy
+curl -sS https://fiatlord-dashboard.<you>.workers.dev/api/coinspot/prices
+curl -sS 'https://fiatlord-dashboard.<you>.workers.dev/api/coinspot/prices?diag=stored'
+```
+
+   The probe should answer `"source":"stored"` with `"stored":{"present":true}`.
+   There is deliberately no SQL seed: a hand-written row would be served as a
+   carried price for five minutes, so the only honest way to fill the table is a
+   fetch the worker itself made. Until one succeeds, the probe answers
+   `present:false` with `no stored row`, which is the true state of a fresh
+   account.
+
+Locally the same binding works offline: `npx wrangler dev`, and once
+`npx wrangler d1 execute fiatlord-prices --local --file build/site-fiatlord.schema.sql`.
+
 #### Prices: live from CoinSpot, not simulated
 
 The Worker serves `GET /api/coinspot/prices` from CoinSpot's public ticker

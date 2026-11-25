@@ -1,0 +1,30 @@
+// Deploy the dashboard to a Cloudflare account of your own.
+//
+// This is the same deployment build/site-fiatlord.deploy.json describes for
+// Freebuff Sites: the worker in front of the staged static tree, with a D1
+// database bound as DB. The steps are in RUNBOOK.md, "Deploying from a clone".
+//
+// run_worker_first is true so every response - prices, the /api refusals, the
+// hashed bundles and the shell - passes through the worker, which is what sets
+// the cache headers the page depends on. Unknown paths are still handed to
+// env.ASSETS.fetch, where not_found_handling serves index.html with a 200, the
+// same answer the manifest's "spa": true gives.
+{
+  "name": "fiatlord-dashboard",
+  "main": "build/site-fiatlord.worker.js",
+  "compatibility_date": "2026-11-01",
+  "assets": {
+    "directory": "./build/site-fiatlord",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": true
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      // `npx wrangler d1 create fiatlord-prices` prints the id; paste it here.
+      "database_name": "fiatlord-prices",
+      "database_id": "REPLACE_WITH_DATABASE_ID"
+    }
+  ]
+}
