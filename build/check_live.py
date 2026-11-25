@@ -19,13 +19,13 @@ something:
    with an age inside the five-minute window.
 
 Every step is retried, and for two different reasons. A deploy is not atomic:
-for up to about a minute old and new isolates answer the same URL, so the first
+for a few seconds old and new isolates answer the same URL, so the first
 `/api/version` can report the previous worker id (or, on an older build, no `db`
 field) and an old isolate refuses `?diag=cold` as an unknown flag. Separately,
 the mirror write runs after the prices answer, so the first cold probe can reach
 the host before the row arrives. A rollout therefore ends as a pass with a note
-saying it matched on try N; a deploy that never landed still fails once the
-retry window (about a minute) is spent, and says so.
+saying how long it took; a deploy that never landed still fails after about 15 s
+of retries, and the failure says how long it waited.
 
     python build/check_live.py                      # the production host
     python build/check_live.py --url http://127.0.0.1:8787
@@ -51,18 +51,23 @@ TIMEOUT = 20
 WINDOW_MS = 5 * 60 * 1000
 HEX12 = "0123456789abcdef"
 
-# A deploy is not atomic. For up to about a minute the old and the new isolate
-# both answer the same URL, and the old one reports the previous worker id (and,
+# A deploy is not atomic. For a few seconds the old and the new isolate both
+# answer the same URL, and the old one reports the previous worker id (and,
 # before the `db` field existed, no binding at all) - or refuses `?diag=cold` as
 # an unknown flag. Every step is therefore retried until an isolate gives the
-# expected answer, so shipping does not turn the scheduled run red. A deploy
-# that never landed still fails, once the whole window has been used.
-VERSION_TRIES = 7
-VERSION_WAIT = 5.0
-PRICES_TRIES = 3
-PRICES_WAIT = 2.0
-COLD_TRIES = 8
-COLD_WAIT = 3.0
+# expected answer, so shipping does not turn the scheduled run red.
+#
+# The tolerance is deliberately short, about 15 s in total: a rollout is measured
+# in seconds, and every second of grace here is a second a genuine drift keeps
+# answering ok. Longer than this has only been seen on a handful of deploys, and
+# the failure names how long it waited so that case is visible rather than
+# guessed at.
+VERSION_TRIES = 4
+VERSION_WAIT = 3.0
+PRICES_TRIES = 2
+PRICES_WAIT = 1.0
+COLD_TRIES = 4
+COLD_WAIT = 1.5
 
 failures: list[str] = []
 
@@ -96,13 +101,13 @@ def parsed(text: str) -> dict | None:
     return value if isinstance(value, dict) else None
 
 
-def rollout_note(workers: list, wanted: str, tries: int) -> str:
+def rollout_note(workers: list, wanted: str, waited: float) -> str:
     """Say whether the misses looked like a deploy in progress or a stale host."""
     if workers and workers[-1] == wanted:
-        return "matched on try %d of %d; a deploy was propagating" % (tries, tries)
+        return "matched after %.1fs; a deploy was propagating" % waited
     seen = list(dict.fromkeys(workers))
-    return "host answered %s over %d tries, so the deployment is old or missing" % (
-        ", ".join(seen), tries)
+    return ("host answered %s after %.1fs of retries, so the deployment is old or "
+            "missing" % (", ".join(seen), waited))
 
 
 def local_worker_id() -> str:
@@ -139,6 +144,7 @@ def main(argv: list[str]) -> int:
     #    stale deploy.
     status, text, version, workers = 0, "", {}, []
     assets = None
+    started = time.monotonic()
     for attempt in range(1, VERSION_TRIES + 1):
         status, text = get(base + "/api/version")
         version = parsed(text) or {}
@@ -150,14 +156,16 @@ def main(argv: list[str]) -> int:
             break
         if attempt < VERSION_TRIES:
             time.sleep(VERSION_WAIT)
+    waited = time.monotonic() - started
     if attempt > 1 and version.get("worker") == wanted:
-        print("note   version matched on try %d; a deploy was propagating" % attempt)
+        print("note   version matched after %.1fs (try %d); a deploy was propagating"
+              % (waited, attempt))
 
     check("version answers 200", status == 200, "status %d" % status)
     check("version is JSON", bool(version), text[:120])
     check("host runs this checkout's worker", version.get("worker") == wanted,
           "host %r, clone %r (%s)" % (version.get("worker"), wanted,
-                                      rollout_note(workers, wanted, attempt)))
+                                      rollout_note(workers, wanted, waited)))
     check("host reports a page id", isinstance(assets, str) and len(assets) == 12,
           repr(assets))
     check("host has the database bound", version.get("db") == "bound",
@@ -167,6 +175,7 @@ def main(argv: list[str]) -> int:
     #    retried: during a rollout the first prices answer can come from an old
     #    isolate while the new one is still starting.
     status, text, prices = 0, "", {}
+    started = time.monotonic()
     for attempt in range(1, PRICES_TRIES + 1):
         status, text = get(base + "/api/coinspot/prices")
         prices = parsed(text) or {}
@@ -175,7 +184,8 @@ def main(argv: list[str]) -> int:
             break
         if attempt < PRICES_TRIES:
             time.sleep(PRICES_WAIT)
-    check("prices answers 200", status == 200, "status %d after %d tries" % (status, attempt))
+    check("prices answers 200", status == 200,
+          "status %d after %.1fs" % (status, time.monotonic() - started))
     check("prices carries quotes",
           prices.get("ok") is True and isinstance(prices.get("prices"), dict)
           and len(prices.get("prices") or {}) > 0, text[:120])
@@ -184,6 +194,7 @@ def main(argv: list[str]) -> int:
     #    after the prices answer, and an isolate that still runs the old worker
     #    refuses `?diag=cold` as an unknown flag.
     status, text, cold = 0, "", {}
+    started = time.monotonic()
     for attempt in range(1, COLD_TRIES + 1):
         status, text = get(base + "/api/coinspot/prices?diag=cold")
         cold = parsed(text) or {}
@@ -191,12 +202,13 @@ def main(argv: list[str]) -> int:
             break
         if attempt < COLD_TRIES:
             time.sleep(COLD_WAIT)
+    waited = time.monotonic() - started
     if attempt > 1 and status == 200:
-        print("note   cold read answered on try %d; a deploy or a write was settling" % attempt)
+        print("note   cold read answered after %.1fs (try %d); a deploy or a write was "
+              "settling" % (waited, attempt))
 
     check("cold read answers 200", status == 200,
-          "status %d after %d tries over %ds: %s"
-          % (status, COLD_TRIES, int(COLD_TRIES * COLD_WAIT), text[:160]))
+          "status %d after %.1fs of retries: %s" % (status, waited, text[:160]))
     check("cold read is marked cold", cold.get("diag") == "cold" and cold.get("cleared") is True,
           "diag %r, cleared %r" % (cold.get("diag"), cold.get("cleared")))
     check("cold read came from storage", cold.get("source") == "stored",

@@ -548,13 +548,16 @@ python build/check_live.py --url http://127.0.0.1:8787
   write is scheduled after the prices answer, so the first probe can arrive
   before the row does.
 
-Every step is retried because a deploy is not atomic: for up to about a minute
-the old and the new isolate both answer, and the old one reports the previous
-worker id, omits `db`, and refuses `?diag=cold` as an unknown flag. A rollout
-therefore ends as a pass with a note saying which try matched (`version matched
-on try 5; a deploy was propagating`), and the whole check takes about a minute
-in the worst case. A deploy that never landed still fails, on the full window,
-with `host answered <id> over 7 tries, so the deployment is old or missing`.
+Every step is retried because a deploy is not atomic: for a few seconds the old
+and the new isolate both answer, and the old one reports the previous worker id,
+omits `db`, and refuses `?diag=cold` as an unknown flag. The tolerance is short
+on purpose, about 15 s in total (`/api/version` 4 tries 3 s apart, the cold read
+4 tries 1.5 s apart), because a rollout is measured in seconds and every second
+here is a second a stale deploy keeps answering ok. A rollout ends as a pass
+with a note saying how long it took (`version matched after 6.2s (try 3); a
+deploy was propagating`); a deploy that never landed fails and says how long it
+waited: `host answered <id> after 9.1s of retries, so the deployment is old or
+missing`.
 
 Exit 1 lists every failed check, and the reason narrows the cause: a worker id
 mismatch is a deploy that is not this checkout, `db: "unbound"` is a deploy
