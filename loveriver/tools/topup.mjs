@@ -41,6 +41,11 @@
  *   node tools/topup.mjs --target 140000000000          set the mark, then plan
  *   node tools/topup.mjs --within-window                gate only the full stage
  *   ... add --broadcast and OWNER_KEY, with LOVERIVER_BROADCAST=yes in the environment
+ *   ... --confirm-timeout <seconds> bounds the wait for one mint (default 180)
+ *
+ * A mint that is sent and never mined used to leave this script waiting with no deadline and
+ * nothing to say. It now stops after --confirm-timeout with the hash, so the operator can look
+ * up whether it landed instead of guessing.
  */
 import { JsonRpcProvider, Wallet, Contract, parseUnits, formatUnits, HDNodeWallet, Mnemonic } from 'ethers';
 import { spawnSync } from 'node:child_process';
@@ -123,6 +128,16 @@ const ledgerFile = resolve(value('ledger', 'mint-ledger.jsonl'));
 // a reason to spend six RPC calls and print a balance report before failing.
 const withinWindow = flag('within-window');
 const gateAt = withinWindow ? resolveNow(value('now', '')) : null;
+
+// How long one mint may stay unconfirmed before the run gives up on it. A usage error, checked
+// here with the other argument validation: it costs no RPC call to notice that "5m" is not a
+// number of seconds.
+const confirmTimeoutArg = value('confirm-timeout', '180');
+if (!/^\d+$/.test(confirmTimeoutArg) || Number(confirmTimeoutArg) === 0) {
+  console.error(`  --confirm-timeout ${confirmTimeoutArg} is not a whole number of seconds greater than zero`);
+  process.exit(2);
+}
+const CONFIRM_TIMEOUT_SECONDS = Number(confirmTimeoutArg);
 
 // Ten minutes and no more: whatever is already older than the retention is destroyed before
 // this run reads or records anything, so an expired line is never left on disk for the next
@@ -318,13 +333,51 @@ for (const admin of admins) {
   }
 }
 
+/** Raised when a sent mint has no receipt inside the deadline, so it is never confused with a
+ *  revert or a transport error: those mean the mint failed, this means nobody knows yet. */
+class ConfirmationTimeout extends Error {}
+
+/** tx.wait() with a deadline, so an unmined mint cannot hold the run open indefinitely. */
+function confirmWithin(transaction) {
+  let timer;
+  const deadline = new Promise((_, reject) => {
+    timer = setTimeout(
+      () => reject(new ConfirmationTimeout(`no receipt after ${CONFIRM_TIMEOUT_SECONDS}s`)),
+      CONFIRM_TIMEOUT_SECONDS * 1000
+    );
+  });
+  return Promise.race([transaction.wait(), deadline]).finally(() => clearTimeout(timer));
+}
+
 const writer = new Contract(tokenAddress, ABI, owner);
 let nonce = await provider.getTransactionCount(owner.address, 'pending');
+const planned = phases.reduce((sum, phase) => sum + phase.items.length, 0);
+let confirmed = 0;
 for (const phase of phases) {
   console.log(`  ${phase.name}`);
   for (const item of phase.items) {
     const tx = await writer.mint(item.address, item.amount, { nonce: nonce++ });
-    await tx.wait();
+    try {
+      await confirmWithin(tx);
+    } catch (error) {
+      if (!(error instanceof ConfirmationTimeout)) throw error;
+      // Not a rollback: the mint is in the mempool and may still be mined. Saying so, with the
+      // hash, is the difference between an operator who checks and one who re-runs and mints
+      // twice.
+      console.error(
+        `  REFUSED: mint ${tx.hash} (${formatUnits(item.amount, 18)} LVR to ${item.address}, nonce ${tx.nonce}) ` +
+          `is sent but has no receipt after ${CONFIRM_TIMEOUT_SECONDS}s.`
+      );
+      console.error(
+        `  ${confirmed} of ${planned} mint(s) confirmed and recorded. This one is unrecorded, and ` +
+          `${planned - confirmed - 1} after it were not sent.`
+      );
+      console.error(
+        '  Look the hash up before re-running: a re-run mints again, and this one may still land.'
+      );
+      process.exit(1);
+    }
+    confirmed++;
     // One line per mint that actually happened, written only after it is mined.
     appendLedger(ledgerFile, {
       at: new Date().toISOString(),
