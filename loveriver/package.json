@@ -24,7 +24,9 @@
     "deploy:record": "node tools/record-deployment.mjs",
     "selftest:deployments": "node tools/record-deployment.mjs --selftest",
     "selftest:fund": "node tools/fund.mjs --selftest",
-    "selftest:topup": "node tools/topup.mjs --selftest"
+    "selftest:topup": "node tools/topup.mjs --selftest",
+    "life": "node tools/life-binary.mjs",
+    "selftest:life": "node tools/life-binary.mjs --selftest"
   },
   "dependencies": {
     "ethers": "^6.13.0"
