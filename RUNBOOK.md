@@ -570,6 +570,21 @@ whether it does. `build/check_live.py` asks, and the `live-check` workflow runs
 it every 30 minutes, so a stale deploy or a broken carry is noticed instead of
 discovered by hand during an outage.
 
+Trigger it by hand with `gh workflow run live-check.yaml`, or from
+Actions -> live-check -> "Run workflow". The API equivalent names the same file:
+
+```
+POST /repos/emeraldjewels4-rgb/fiatlord/actions/workflows/live-check.yaml/dispatches
+{"ref": "main"}
+```
+
+The workflow file is `.yaml` rather than `.yml` on purpose. The cron in the
+`.yml` file never fired, and GitHub's object for it kept its creation timestamp
+through two edits, which is what an unregistered schedule looks like. A rename
+changes the path and therefore the workflow id, which is the step that forces
+GitHub to register the trigger afresh; the old workflow and its runs stay in the
+Actions history.
+
 ```
 python build/check_live.py                        # the production host
 python build/check_live.py --url http://127.0.0.1:8787
@@ -583,6 +598,10 @@ python build/check_live.py --url http://127.0.0.1:8787
   inside the five-minute window. It is retried for a few seconds because the
   write is scheduled after the prices answer, so the first probe can arrive
   before the row does.
+
+`python build/check_live.py` exits 0 when the host matches, 1 when a check
+fails, and 3 when the host runs an older commit of this checkout that is
+otherwise healthy - the workflow turns that one into a warning annotation.
 
 Every step is retried because a deploy is not atomic: for a few seconds the old
 and the new isolate both answer, and the old one reports the previous worker id,

@@ -14,7 +14,7 @@
 !/.github/workflows/
 !/.github/check_shell_bytes.py
 !/.github/workflows/dashboard.yml
-!/.github/workflows/live-check.yml
+!/.github/workflows/live-check.yaml
 
 # Directories must be unignored before any file inside them can be.
 !/build/
