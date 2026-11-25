@@ -26,3 +26,10 @@ regtest-bundle-*.tar.gz.sha256
 # Working copies and vendored dependencies that are not ours to version.
 threads/
 loveriver/lib/
+
+# A one-off egress measurement, not part of any recipe: a temporary TCP listener that answers one
+# question - can the x10 account reach a VPS on 3306 - plus the log it writes beside itself. It was
+# run once, on one machine, and opens a firewall port while it runs; it belongs to that test, not to
+# the token, the regtest recipe or the mainnet run.
+deploy/listen-vps-3306.ps1
+deploy/listen-3306.log
