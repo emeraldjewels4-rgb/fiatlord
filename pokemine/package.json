@@ -1,0 +1,11 @@
+{
+  "name": "pokemine-console",
+  "private": true,
+  "version": "2.0.0",
+  "type": "module",
+  "description": "Multi-chain mining console: a clone of PokeMine Red with a real proof-of-work loop and a pluggable chain adapter.",
+  "scripts": {
+    "start": "node server.mjs",
+    "selftest": "node selftest.mjs"
+  }
+}
