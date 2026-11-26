@@ -1,7 +1,7 @@
 # PokeMine Red — multi-chain mining console
 
 A clone of `pokemon-blockchain.emergent.host`, rebuilt from its shipped bundle and extended so
-every currency mines through one adapter instead of a Bitcoin-only simulation.
+every currency mines through one adapter, with local rune collectibles you can mine and collect in-app.
 
 ## What the original actually does
 
@@ -29,6 +29,7 @@ Everything else here is different on purpose.
 | Rewards and balances | **Virtual.** Nothing is signed, broadcast, or paid. Blocks extend a local chain on top of the live tip. |
 | Pool shares | **Real.** Stratum connection to a real mainnet pool, real share target, real submissions. Expected payout at browser hashrate: none. |
 | Vault keypair | **Real cryptography, demo key.** The vault derives a Bitcoin mainnet `bc1q…` address, its public key, WIF and seed in the browser from a random seed held only in the tab. It is labeled as Bitcoin mainnet and **does not change** when you select a different currency. Mined rewards are never sent to it. |
+| Rune collectibles | **Virtual, local only.** Zipcoin (PokeMine: ZIP/Ƶ) and Uncommon Goods Rune (UCG/◈, inspired by UNCOMMON•GOODS Rune #0 idea) are in-app collectibles mined with the same real SHA-256d proof, with no on-chain etch, broadcast, or deployment. Zipcoin is also defined as a real Bitcoin Rune candidate draft (`ZIP•COIN`, `¤`) in `regtest/zipcoin-rune-plan.md`: regtest rehearsal only by default; any mainnet etch requires explicit approval of exact final parameters/fees/command. |
 | Network hashrate | Not shown, because the browser's hashrate is its own. |
 
 ## Real pool shares (POOL BRIDGE)
@@ -57,7 +58,7 @@ loopback-only and the password is never returned to the page.
 ```bash
 cd pokemine
 npm start            # http://127.0.0.1:8077
-npm run selftest     # 11 checks: SHA-256 vectors, fast path, target rule, Gen-3, subsidies
+npm run selftest     # 17 checks: SHA-256 vectors, fast path, target rule, Gen-3, subsidies, keypair/stratum
 ```
 
 No dependencies. `server.mjs` serves the files and proxies chain reads, so the browser never needs

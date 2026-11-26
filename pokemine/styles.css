@@ -112,6 +112,7 @@ h1 em { color: var(--red); font-style: normal; }
 .led.live { background: var(--green); box-shadow: 0 0 12px rgba(57, 255, 20, 0.8); }
 .led.busy { background: var(--amber); box-shadow: 0 0 12px rgba(247, 147, 26, 0.7); }
 .led.offline { background: var(--red); box-shadow: 0 0 12px rgba(220, 40, 40, 0.7); }
+.led.local { background: #7cff6b; box-shadow: 0 0 12px rgba(124, 255, 107, 0.75); }
 
 /* ------------------------------------------------------------- coin rail */
 
@@ -150,6 +151,26 @@ h1 em { color: var(--red); font-style: normal; }
   border-color: var(--red);
   background: linear-gradient(180deg, rgba(124, 29, 29, 0.34), var(--panel));
   box-shadow: inset 0 0 0 1px rgba(220, 40, 40, 0.2);
+}
+
+.coin-chip[data-kind="collectible"] {
+  border-style: dashed;
+}
+
+.coin-chip[data-kind="collectible"].is-active {
+  border-color: #7cff6b;
+  background: linear-gradient(180deg, rgba(54, 124, 45, 0.28), var(--panel));
+  box-shadow: inset 0 0 0 1px rgba(124, 255, 107, 0.18);
+}
+
+.coin-chip .chip-kind {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  color: #a9f08e;
+  border: 1px solid rgba(124, 255, 107, 0.35);
+  padding: 1px 4px;
+  border-radius: 2px;
 }
 
 .coin-chip.is-active .chip-height { color: var(--amber); }

@@ -1,0 +1,35 @@
+# REGTEST ONLY — Zipcoin (ZIP•COIN) Rune candidate draft. Do not broadcast to mainnet.
+#
+# Definition:
+# - PokeMine collectible: Zipcoin Rune, ticker ZIP, symbol Ƶ (virtual/local app).
+# - Bitcoin Rune candidate: ZIP•COIN (ZIPCOIN), symbol ¤ (Rune-compliant, A-Z only).
+# - Relation to UNCOMMON•GOODS: original concept inspired by the open collectible
+#   spirit of UNCOMMON•GOODS (Rune #0); no affiliation, endorsement, on-chain link,
+#   merge, fuse, or attachment. UNCOMMON•GOODS is immutable and separate.
+# - Deploy meaning: local app = local PokeMine update; regtest rehearsal = local
+#   ord etch on regtest only; mainnet etch = ONLY with explicit approval of exact
+#   final parameters/fees/command. No mainnet broadcast by default.
+#
+# ord 0.29 refuses a rune-only batch: an etch must ride with at least one inscription.
+# This uses regtest/throwaway.txt, same pattern as batch-throwaway.yaml.
+mode: separate-outputs
+postage: 10000
+
+inscriptions:
+  - file: throwaway.txt
+
+etching:
+  # Rune-compliant name: A-Z only; spacers are cosmetic (ZIPCOIN == ZIP•COIN).
+  rune: ZIP•COIN
+  divisibility: 0
+  premine: 1000000        # whole units allocated to the etching wallet; public in indexers
+  supply: 21000000        # MUST equal premine + terms.cap * terms.amount
+  symbol: ¤
+  turbo: true
+
+  terms:
+    amount: 1000          # units per mint
+    cap: 20000            # 20,000 mints * 1,000 = 20,000,000 mintable
+    offset:
+      start: 0
+      end: 52500          # ~1 year of blocks; omit `end` for a never-closing mint

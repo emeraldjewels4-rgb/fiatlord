@@ -47,11 +47,11 @@
             <span class="metric-value green" id="hashrate">0.00 <small>kH/s</small></span>
           </div>
           <div class="metric">
-            <span class="metric-label">BLOCKS</span>
+            <span class="metric-label" id="metric-blocks-label">BLOCKS</span>
             <span class="metric-value" id="blocks-count">0</span>
           </div>
           <div class="metric">
-            <span class="metric-label">EARNED</span>
+            <span class="metric-label" id="metric-earned-label">EARNED</span>
             <span class="metric-value amber" id="earned">0 <small>BTC</small></span>
           </div>
           <div class="metric">
@@ -87,18 +87,18 @@
 
       <section class="card chain">
         <div class="card-head">
-          <h2>CHAIN CONNECTION</h2>
+          <h2 id="chain-head-title">CHAIN CONNECTION</h2>
           <span class="pill" id="chain-adapter">mempool</span>
         </div>
         <dl class="chain-list">
-          <div><dt>HEIGHT</dt><dd id="chain-height">—</dd></div>
-          <div><dt>BLOCK SUBSIDY</dt><dd id="chain-subsidy">—</dd></div>
-          <div><dt>NETWORK DIFFICULTY</dt><dd id="chain-diff">—</dd></div>
-          <div><dt>HEAD BLOCK</dt><dd class="mono small" id="chain-hash">—</dd></div>
-          <div><dt>READ AT</dt><dd id="chain-time">—</dd></div>
-          <div><dt>UPSTREAM</dt><dd class="mono small" id="chain-source">—</dd></div>
+          <div><dt id="chain-label-height">HEIGHT</dt><dd id="chain-height">—</dd></div>
+          <div><dt id="chain-label-subsidy">BLOCK SUBSIDY</dt><dd id="chain-subsidy">—</dd></div>
+          <div><dt id="chain-label-diff">NETWORK DIFFICULTY</dt><dd id="chain-diff">—</dd></div>
+          <div><dt id="chain-label-hash">HEAD BLOCK</dt><dd class="mono small" id="chain-hash">—</dd></div>
+          <div><dt id="chain-label-time">READ AT</dt><dd id="chain-time">—</dd></div>
+          <div><dt id="chain-label-source">UPSTREAM</dt><dd class="mono small" id="chain-source">—</dd></div>
         </dl>
-        <p class="hint">Live head read by the local proxy in <code>server.mjs</code>. Blocks you find extend this tip locally.</p>
+        <p class="hint" id="chain-hint">Live head read by the local proxy in <code>server.mjs</code>. Blocks you find extend this tip locally.</p>
       </section>
 
       <section class="card pool">
@@ -247,6 +247,7 @@
       <p>
         Header hashing is real double-SHA-256 against a real target; block rewards are
         <strong>virtual</strong> and nothing is broadcast. Chain heights and difficulties are read live.
+        Rune collectibles are virtual in-app finds, with no on-chain etch or deployment.
       </p>
     </footer>
 
