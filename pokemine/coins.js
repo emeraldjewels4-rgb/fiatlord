@@ -76,7 +76,7 @@ export const COINS = [
     collectible: true,
     kindLabel: 'RUNE COLLECTIBLE',
     source: 'Local rune collection (virtual)',
-    description: 'Zipcoin Rune (ZIP, Ƶ): a virtual PokeMine collectible. Inspired by the open collectible spirit of UNCOMMON•GOODS (Rune #0), with no affiliation or on-chain link. A ZIP•COIN Bitcoin Rune candidate exists as a regtest-only draft; no mainnet etch/broadcast without explicit approval.',
+    description: 'Zipcoin Rune (ZIP, Ƶ): a virtual PokeMine collectible with supply 6,999,999,911. Inspired by the open collectible spirit of UNCOMMON•GOODS (Rune #0), with no affiliation or on-chain link. A ZIP•COIN Bitcoin Rune candidate exists as a regtest-only draft; no mainnet etch/broadcast without explicit approval. When a wallet's balance reaches zero it refills to the full supply, resetting to 6,999,999,911 ZIP.',
     adapter: { kind: 'local', url: 'local://zipcoin' },
   },
   {
