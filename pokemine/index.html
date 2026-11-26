@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PokeMine Red — Multi-Chain Mining Console</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Share+Tech+Mono&family=VT323&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="scanlines" aria-hidden="true"></div>
+
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-dot" aria-hidden="true"></span>
+        <h1>POKEMINE <em>RED</em></h1>
+        <span class="brand-sub">multi-chain mining console</span>
+      </div>
+      <div class="ticker">
+        <span id="price-label">— / USD</span>
+        <strong id="price-value">$0</strong>
+      </div>
+      <div class="conn" title="Chain data comes from the selected currency's own public API">
+        <span class="led" id="conn-dot" aria-hidden="true"></span>
+        <span id="conn-text">connecting…</span>
+      </div>
+    </header>
+
+    <nav class="coinrail" id="coin-rail" aria-label="Currencies"></nav>
+
+    <main class="grid">
+      <section class="card hud">
+        <div class="card-head">
+          <span class="status" id="rig-status">IDLE</span>
+          <h2>MINING RIG HUD</h2>
+          <span class="pill" id="rig-coin">BTC</span>
+        </div>
+
+        <div class="hud-grid">
+          <div class="metric">
+            <span class="metric-label">HASHRATE</span>
+            <span class="metric-value green" id="hashrate">0.00 <small>kH/s</small></span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">BLOCKS</span>
+            <span class="metric-value" id="blocks-count">0</span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">EARNED</span>
+            <span class="metric-value amber" id="earned">0 <small>BTC</small></span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">TEMP</span>
+            <span class="metric-value red" id="temp">45°C</span>
+          </div>
+        </div>
+
+        <div class="progress-row">
+          <span>MINING PROGRESS</span>
+          <span id="progress-label">0%</span>
+        </div>
+        <div class="progress"><div class="progress-bar" id="progress-bar"></div></div>
+
+        <div class="control-row">
+          <label>
+            <span>DIFFICULTY <b id="difficulty-label">D4</b></span>
+            <input id="difficulty-range" type="range" min="1" max="6" step="1" value="4" />
+          </label>
+          <label>
+            <span>HASHRATE BOOST <b id="boost-label">1.0x</b></span>
+            <input id="boost-range" type="range" min="1" max="4" step="0.5" value="1" />
+          </label>
+        </div>
+
+        <div class="actions">
+          <button id="mine-btn" class="action-btn" type="button">START MINING</button>
+          <button id="reseed-btn" class="ghost-btn" type="button" title="Re-anchor the header to the live chain tip">
+            RE-ANCHOR
+          </button>
+        </div>
+      </section>
+
+      <section class="card chain">
+        <div class="card-head">
+          <h2>CHAIN CONNECTION</h2>
+          <span class="pill" id="chain-adapter">mempool</span>
+        </div>
+        <dl class="chain-list">
+          <div><dt>HEIGHT</dt><dd id="chain-height">—</dd></div>
+          <div><dt>BLOCK SUBSIDY</dt><dd id="chain-subsidy">—</dd></div>
+          <div><dt>NETWORK DIFFICULTY</dt><dd id="chain-diff">—</dd></div>
+          <div><dt>HEAD BLOCK</dt><dd class="mono small" id="chain-hash">—</dd></div>
+          <div><dt>READ AT</dt><dd id="chain-time">—</dd></div>
+          <div><dt>UPSTREAM</dt><dd class="mono small" id="chain-source">—</dd></div>
+        </dl>
+        <p class="hint">Live head read by the local proxy in <code>server.mjs</code>. Blocks you find extend this tip locally.</p>
+      </section>
+
+      <section class="card pool">
+        <div class="card-head">
+          <h2>POOL BRIDGE</h2>
+          <span class="pill" id="pool-state">offline</span>
+        </div>
+        <p class="hint pool-warning">
+          Real shares, submitted to a real mainnet pool. They are not blocks and not coins: at this
+          browser's hashrate one difficulty-1 share takes roughly <strong>four hours</strong>, and a block
+          is ~8.8×10<sup>18</sup> times harder than the rig's D4 target. Expect <strong>no payout</strong>.
+          The WALLET VAULT balances stay virtual; this panel cannot change them.
+        </p>
+        <div class="pool-form">
+          <label><span>POOL HOST</span><input id="pool-host" value="public-pool.io" spellcheck="false" /></label>
+          <label><span>PORT</span><input id="pool-port" type="number" min="1" max="65535" value="21496" /></label>
+          <label class="span-2">
+            <span>USERNAME — YOUR PAYOUT ADDRESS (the pool credits it)</span>
+            <input id="pool-user" placeholder="bc1q…" spellcheck="false" />
+          </label>
+          <label><span>PASSWORD</span><input id="pool-pass" value="x" spellcheck="false" /></label>
+          <label><span>SUGGEST DIFFICULTY</span><input id="pool-suggest" type="number" min="0.001" step="0.001" value="0.001" /></label>
+        </div>
+        <div class="pool-actions">
+          <button id="pool-connect" class="action-btn" type="button">CONNECT</button>
+          <button id="pool-disconnect" class="ghost-btn" type="button">DISCONNECT</button>
+        </div>
+        <dl class="chain-list">
+          <div><dt>SHARES</dt><dd id="pool-shares">0 accepted · 0 rejected</dd></div>
+          <div><dt>SHARE DIFFICULTY</dt><dd id="pool-diff">—</dd></div>
+          <div><dt>HASHRATE</dt><dd id="pool-rate">0 H/s</dd></div>
+          <div><dt>BEST HASH</dt><dd id="pool-best">—</dd></div>
+          <div><dt>POOL JOB</dt><dd class="mono small" id="pool-job">—</dd></div>
+          <div><dt>LAST SHARE</dt><dd class="mono small" id="pool-last">—</dd></div>
+        </dl>
+      </section>
+
+      <section class="card scanner">
+        <div class="card-head">
+          <h2>BLOCKCHAIN SCANNER</h2>
+          <span class="pill" id="scan-count">0 hashes</span>
+        </div>
+        <div class="target-row">
+          <div>
+            <span class="metric-label">TARGET PREFIX</span>
+            <code class="target" id="target-prefix">0000****</code>
+          </div>
+          <div>
+            <span class="metric-label">DIFFICULTY</span>
+            <b class="red" id="diff-badge">D4</b>
+          </div>
+        </div>
+        <div class="scan-grid" id="scanner-grid" aria-live="off"></div>
+        <div class="scan-foot">
+          <span id="scan-rate">waiting for the rig</span>
+          <span id="scan-best">best: —</span>
+        </div>
+      </section>
+
+      <section class="card hex">
+        <div class="card-head">
+          <h2>HEX ENCODER</h2>
+          <span class="pill">Gen-3 charset</span>
+        </div>
+        <div class="tabs" role="tablist">
+          <button type="button" class="tab is-active" data-mode="encode">ENCODE</button>
+          <button type="button" class="tab" data-mode="decode">DECODE</button>
+          <button type="button" class="tab" data-mode="table">TABLE</button>
+        </div>
+        <label class="field" id="hex-input-wrap">
+          <span class="metric-label" id="hex-input-label">TEXT INPUT</span>
+          <textarea id="hex-input" rows="3" spellcheck="false">MINED 8076 SAT</textarea>
+        </label>
+        <label class="field">
+          <span class="metric-label">OUTPUT</span>
+          <output class="hex-out" id="hex-output">C7 C3 C8 BF BE 00 A9 A1 A8 A7 00 CD BB CE</output>
+        </label>
+        <div class="hex-table" id="hex-table" hidden></div>
+      </section>
+
+      <section class="card memory">
+        <div class="card-head">
+          <h2>MEMORY SCANNER</h2>
+          <span class="pill" id="mem-nonce">nonce 0</span>
+        </div>
+        <div class="mem-grid" id="mem-grid"></div>
+        <div class="mem-foot">
+          <span>prev-hash window &middot; byte-offset 4</span>
+          <span id="mem-merkle">merkle —</span>
+        </div>
+      </section>
+
+      <section class="card vault">
+        <div class="card-head">
+          <h2>WALLET VAULT</h2>
+          <span class="pill" id="wallet-total">$0.00</span>
+        </div>
+        <div class="vault-address">
+          <label class="field grow">
+            <span class="metric-label">COINBASE ADDRESS</span>
+            <input id="address-input" spellcheck="false" />
+          </label>
+          <button id="address-save" class="ghost-btn" type="button">USE</button>
+        </div>
+        <div class="keypair">
+          <div class="keypair-head">
+            <span class="metric-label">BITCOIN MAINNET DEMO KEYPAIR</span>
+            <span class="hint">Not tied to the selected currency</span>
+          </div>
+          <p class="keypair-banner">
+            <strong>BITCOIN MAINNET DEMO KEY — NOT A PAYOUT ADDRESS.</strong>
+            This is a Bitcoin mainnet <code>bc1q…</code> address derived in this browser from a random seed.
+            It <strong>does not change</strong> when you select a different currency. The balances above are
+            <strong>virtual</strong>: mined rewards never arrive at it and nothing is broadcast. It holds
+            nothing unless you send real coins to it yourself.
+          </p>
+          <dl class="keypair-fields">
+            <div><dt>BITCOIN ADDRESS</dt><dd id="keypair-address">—</dd></div>
+            <div><dt>PUBLIC KEY</dt><dd id="keypair-pub" class="muted-line">—</dd></div>
+            <div><dt>PRIVATE KEY (WIF)</dt><dd id="keypair-wif" class="muted-line">—</dd></div>
+            <div><dt>SEED (HEX)</dt><dd id="keypair-seed" class="muted-line">—</dd></div>
+          </dl>
+          <div class="keypair-actions">
+            <button id="keypair-reveal" class="ghost-btn" type="button">REVEAL KEY</button>
+            <button id="keypair-new" class="ghost-btn" type="button">NEW KEYPAIR</button>
+            <span class="hint">Held in this tab's memory only — a reload discards it.</span>
+          </div>
+        </div>
+
+        <div class="wallet-list" id="wallet-list"></div>
+        <button id="wallet-reset" class="ghost-btn danger" type="button">RESET THIS WALLET</button>
+      </section>
+
+      <section class="card terminal">
+        <div class="card-head">
+          <h2>MINING TERMINAL</h2>
+          <span class="pill" id="terminal-count">0 lines</span>
+        </div>
+        <div class="terminal-body" id="terminal"></div>
+        <div class="terminal-prompt">pokemine@multi:~$ <span class="caret">_</span></div>
+      </section>
+    </main>
+
+    <footer class="foot">
+      <p id="foot-line">PokeMine Red — multi-chain mining console</p>
+      <p>
+        Header hashing is real double-SHA-256 against a real target; block rewards are
+        <strong>virtual</strong> and nothing is broadcast. Chain heights and difficulties are read live.
+      </p>
+    </footer>
+
+    <button id="add-coin-btn" class="fab" type="button">+ CURRENCY</button>
+
+    <dialog id="add-dialog" class="dialog">
+      <form id="add-form" method="dialog">
+        <h2>ADD A CURRENCY</h2>
+        <p class="hint">
+          One registry entry is all a new chain needs: an adapter, an endpoint, and a subsidy.
+        </p>
+
+        <div class="form-grid">
+          <label><span>Name</span><input name="name" required placeholder="My Chain" /></label>
+          <label><span>Ticker</span><input name="ticker" required maxlength="8" placeholder="MYC" /></label>
+          <label><span>Decimals</span><input name="decimals" type="number" min="0" max="18" value="8" /></label>
+          <label><span>Subsidy (whole coins)</span><input name="reward" type="number" min="0" step="any" value="50" /></label>
+          <label><span>Block time (s)</span><input name="blockSeconds" type="number" min="1" value="600" /></label>
+          <label><span>Difficulty (D1–D6)</span><input name="difficulty" type="number" min="1" max="6" value="4" /></label>
+          <label class="span-2">
+            <span>Adapter</span>
+            <select name="kind">
+              <option value="mempool">mempool-compatible API</option>
+              <option value="blockchair">blockchair chain</option>
+              <option value="rpc">JSON-RPC node (local allowed)</option>
+            </select>
+          </label>
+          <label class="span-2"><span>Endpoint URL</span><input name="url" required placeholder="https://…" /></label>
+          <label class="span-2" data-chain-field hidden>
+            <span>blockchair chain slug</span><input name="chain" placeholder="dogecoin" />
+          </label>
+          <label class="span-2">
+            <span>CoinGecko id (optional, for USD)</span><input name="priceId" placeholder="bitcoin" />
+          </label>
+        </div>
+
+        <div class="dialog-actions">
+          <button class="ghost-btn" type="button" id="add-cancel">CANCEL</button>
+          <button class="action-btn" type="submit">ADD CURRENCY</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
